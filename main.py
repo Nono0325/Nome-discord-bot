@@ -30,8 +30,12 @@ from config.settings import (
     AUTO_JOIN_MIN_MEMBERS
 )
 import discord
+from core.pycord_patch import apply_pycord_patches
 from core.voice_manager import VoiceManager
 from music.ytm_client import ytm_client
+
+# 套用 Pycord 錄音相容性修復補丁
+apply_pycord_patches()
 
 # 建立 Discord Bot
 intents = discord.Intents.default()
