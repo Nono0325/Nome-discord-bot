@@ -1,0 +1,45 @@
+import os
+import sys
+from pathlib import Path
+from dotenv import load_dotenv
+
+# 載入 .env 檔案
+BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env")
+
+# 確保虛擬環境的 Scripts (包含 ffmpeg) 加入 PATH
+VENV_SCRIPTS = BASE_DIR / ".venv" / "Scripts"
+if VENV_SCRIPTS.exists():
+    os.environ["PATH"] = str(VENV_SCRIPTS) + os.pathsep + os.environ.get("PATH", "")
+
+# 設定 pydub ffmpeg 路徑
+try:
+    import pydub
+    from pydub import AudioSegment
+    ffmpeg_exe = VENV_SCRIPTS / "ffmpeg.exe"
+    if ffmpeg_exe.exists():
+        AudioSegment.converter = str(ffmpeg_exe)
+        AudioSegment.ffmpeg = str(ffmpeg_exe)
+except ImportError:
+    pass
+
+# Discord 設定
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN", "").strip()
+COMMAND_PREFIX = os.getenv("COMMAND_PREFIX", "!").strip()
+
+# 錄音與回放緩衝區設定
+AUTO_RECORD = os.getenv("AUTO_RECORD", "false").lower() in ("true", "1", "yes")
+REPLAY_BUFFER_SECONDS = int(os.getenv("REPLAY_BUFFER_SECONDS", "60"))
+
+# Google YouTube Music 認證設定
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
+
+CONFIG_DIR = BASE_DIR / "config"
+CONFIG_DIR.mkdir(exist_ok=True)
+RECORDINGS_DIR = BASE_DIR / "recordings"
+RECORDINGS_DIR.mkdir(exist_ok=True)
+
+OAUTH_JSON_PATH = CONFIG_DIR / "oauth.json"
+BROWSER_JSON_PATH = CONFIG_DIR / "browser.json"
+COOKIES_TXT_PATH = CONFIG_DIR / "cookies.txt"

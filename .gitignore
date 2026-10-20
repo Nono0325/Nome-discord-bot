@@ -1,0 +1,29 @@
+# Virtual Environment
+.venv/
+venv/
+ENV/
+
+# Python Cache
+__pycache__/
+*/__pycache__/
+**/*.pyc
+*.pyo
+*.pyd
+
+# Secret Configuration
+.env
+config/oauth.json
+config/browser.json
+config/cookies.txt
+
+# Audio Recordings
+recordings/
+*.mp3
+*.wav
+*.ogg
+*.flac
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
