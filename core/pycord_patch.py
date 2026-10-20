@@ -77,12 +77,40 @@ def apply_pycord_patches():
 
         PacketDecoder._decode_packet = _patched_decode_packet
 
-        # 3. 補丁 PacketDecryptor.decrypt_rtp：確保非 DAVE 或未就緒時音訊不為 None
+        # 3. 補丁 PacketDecryptor._decrypt_rtp_aead_xchacha20_poly1305_rtpsize：防止損毀 UDP 封包刷屏報錯
+        def _safe_decrypt_aead(self, packet):
+            packet.adjust_rtpsize()
+            nonce = packet.nonce + b"\x00" * 20
+            try:
+                result = self.box.decrypt(
+                    packet.decrypted_data or packet.data,
+                    bytes(packet.header),
+                    nonce,
+                )
+            except Exception:
+                return OPUS_SILENCE
+
+            if packet.extended:
+                packet.update_extended_header(result)
+
+            return result[8:]
+
+        PacketDecryptor._decrypt_rtp_aead_xchacha20_poly1305_rtpsize = _safe_decrypt_aead
+
+        # 4. 補丁 PacketDecryptor.decrypt_rtp：確保非 DAVE 或未就緒時音訊不為 None
         def _patched_decrypt_rtp(self, packet):
             state = self.client._connection
             dave = state.dave_session
 
-            raw_payload = self._decryptor_rtp(packet)
+            try:
+                raw_payload = self._decryptor_rtp(packet)
+            except Exception:
+                packet.decrypted_data = OPUS_SILENCE
+                return OPUS_SILENCE
+
+            if not raw_payload or raw_payload == OPUS_SILENCE:
+                packet.decrypted_data = OPUS_SILENCE
+                return OPUS_SILENCE
 
             if dave is not None and dave.ready and davey:
                 uid = state.ssrc_user_map.get(packet.ssrc)
@@ -98,7 +126,7 @@ def apply_pycord_patches():
                             packet.decrypted_data = decrypted_audio[offset:]
                         else:
                             packet.decrypted_data = decrypted_audio
-                    except Exception as exc:
+                    except Exception:
                         packet.decrypted_data = OPUS_SILENCE
                 else:
                     packet.decrypted_data = OPUS_SILENCE

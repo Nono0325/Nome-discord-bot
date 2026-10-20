@@ -37,7 +37,7 @@ from music.ytm_client import ytm_client
 # 套用 Pycord 錄音相容性修復補丁
 apply_pycord_patches()
 
-# 建立 Discord Bot
+# 建立 Discord Bot (啟用標準語音與伺服器 intents，無需啟用特權 intents 即可穩定運作)
 intents = discord.Intents.default()
 intents.voice_states = True
 intents.guilds = True
@@ -119,28 +119,60 @@ async def on_voice_state_update(member, before, after):
     if before.channel == after.channel:
         return
 
+
     # ----------------------------------------------------
     # 情境一：成員加入或切換至某個語音頻道 (after.channel)
     # ----------------------------------------------------
     if after.channel is not None and AUTO_JOIN_ENABLED:
         target_ch = after.channel
         guild = target_ch.guild
-        non_bots = [m for m in target_ch.members if not m.bot]
+        
+        # 取得頻道非機器人成員（使用 voice_states 確保即時準確，不受快取影響）
+        ch_user_ids = set(target_ch.voice_states.keys())
+        if not member.bot:
+            ch_user_ids.add(member.id)
+        if bot.user and bot.user.id in ch_user_ids:
+            ch_user_ids.remove(bot.user.id)
 
-        if len(non_bots) >= AUTO_JOIN_MIN_MEMBERS:
+        # 計算非機器人人數
+        non_bot_count = 0
+        for uid in ch_user_ids:
+            m = guild.get_member(uid)
+            if m:
+                if not m.bot:
+                    non_bot_count += 1
+            else:
+                non_bot_count += 1
+
+        logger.info(f"語音頻道動態: 成員 {member.display_name} 進入 {target_ch.name} (頻道現有人數: {non_bot_count}, 門檻: {AUTO_JOIN_MIN_MEMBERS})")
+
+        if non_bot_count >= AUTO_JOIN_MIN_MEMBERS:
             vc = guild.voice_client
+            from core.guild_settings import guild_settings
+            text_ch = guild_settings.get_music_channel(guild)
+
             # 機器人尚未連線語音
             if not vc or not vc.is_connected():
-                logger.info(f"語音頻道 {target_ch.name} 成員達 {len(non_bots)} 人 (>= {AUTO_JOIN_MIN_MEMBERS})，機器人自動加入。")
+                logger.info(f"語音頻道 {target_ch.name} 成員達 {non_bot_count} 人 (>= {AUTO_JOIN_MIN_MEMBERS})，機器人自動加入並啟動語音對話錄製。")
                 try:
-                    await bot.voice_manager.connect_voice(target_ch, manual=False)
+                    await bot.voice_manager.connect_voice(target_ch, text_channel=text_ch, manual=False)
+                    if text_ch:
+                        embed = discord.Embed(
+                            title="🎙️ 機器人已自動加入語音頻道！",
+                            description=f"已連線至 **{target_ch.name}** 並自動啟動語音對話錄製！\n隨時可以使用 `/clip` 擷取前 1 分鐘精彩對話，或使用 `/play` 點歌。",
+                            color=0x2ECC71
+                        )
+                        await text_ch.send(embed=embed)
                 except Exception as e:
                     logger.warning(f"自動加入語音頻道 {target_ch.name} 失敗: {e}")
             elif vc.channel and vc.channel.id != target_ch.id:
                 # 機器人已在其他頻道，檢查原頻道是否已經無人且未在播歌
-                curr_non_bots = [m for m in vc.channel.members if not m.bot]
+                curr_user_ids = set(vc.channel.voice_states.keys())
+                if bot.user and bot.user.id in curr_user_ids:
+                    curr_user_ids.remove(bot.user.id)
+                curr_non_bots = [uid for uid in curr_user_ids if not (guild.get_member(uid) and guild.get_member(uid).bot)]
                 if len(curr_non_bots) == 0 and not vc.is_playing():
-                    logger.info(f"原頻道 {vc.channel.name} 已無成員，新頻道 {target_ch.name} 達 {len(non_bots)} 人，自動移動。")
+                    logger.info(f"原頻道 {vc.channel.name} 已無成員，新頻道 {target_ch.name} 達 {non_bot_count} 人，自動移動。")
                     try:
                         await bot.voice_manager.connect_voice(target_ch, manual=False)
                     except Exception as e:
@@ -155,15 +187,28 @@ async def on_voice_state_update(member, before, after):
         vc = guild.voice_client
         # 確保連線已建立且機器人位於成員剛剛離開的頻道
         if vc and vc.is_connected() and vc.channel and vc.channel.id == left_ch.id:
-            non_bots = [m for m in vc.channel.members if not m.bot]
+            left_user_ids = set(left_ch.voice_states.keys())
+            left_user_ids.discard(member.id)
+            if bot.user:
+                left_user_ids.discard(bot.user.id)
+
+            remaining_count = 0
+            for uid in left_user_ids:
+                m = guild.get_member(uid)
+                if m:
+                    if not m.bot:
+                        remaining_count += 1
+                else:
+                    remaining_count += 1
+
             is_manual = bot.voice_manager.manual_joins.get(guild.id, False)
 
             # 規則 1：完全沒有任何非機器人成員時，必然離開
-            if len(non_bots) == 0:
+            if remaining_count == 0:
                 logger.info(f"頻道 {vc.channel.name} 已無其他成員，機器人自動退出語音。")
                 await bot.voice_manager.disconnect_voice(guild.id)
             # 規則 2：若是自動加入的狀態，且人數降至門檻以下且未在播歌時，自動退出
-            elif not is_manual and len(non_bots) < AUTO_JOIN_MIN_MEMBERS:
+            elif not is_manual and remaining_count < AUTO_JOIN_MIN_MEMBERS:
                 if not vc.is_playing():
                     logger.info(f"頻道 {vc.channel.name} 成員少於 {AUTO_JOIN_MIN_MEMBERS} 人且未在播歌，機器人自動退出。")
                     await bot.voice_manager.disconnect_voice(guild.id)

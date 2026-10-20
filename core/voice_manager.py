@@ -78,9 +78,12 @@ class VoiceManager:
 
     async def disconnect_voice(self, guild_id: int):
         """
-        斷開語音連線並清理資源
+        斷開語音連線，若正在自動錄音則自動匯出並上傳錄音檔，隨後清理資源
         """
         guild = self.bot.get_guild(guild_id)
+        player = self.players.get(guild_id)
+        target_ch = player.target_text_channel if player else None
+
         if guild and guild.voice_client:
             vc = guild.voice_client
             if vc.is_recording():
@@ -90,12 +93,38 @@ class VoiceManager:
                     pass
             await vc.disconnect()
 
+        # 若有正在錄音的會話，自動混音輸出 MP3 並上傳至文字頻道
+        if guild_id in self.sinks:
+            sink = self.sinks[guild_id]
+            if sink.is_session_recording and sink.session_chunks:
+                try:
+                    import os, time
+                    timestr = time.strftime("%Y%m%d_%H%M%S")
+                    filename = f"session_{timestr}.mp3"
+                    out_path = await sink.stop_session_recording_async(filename)
+                    if out_path and os.path.exists(out_path):
+                        file_size = os.path.getsize(out_path)
+                        if target_ch:
+                            embed = discord.Embed(
+                                title="💾 語音頻道自動錄音已存檔！",
+                                description=f"通話已結束，語音頻道所有成員之對話已自動對齊混音！\n📦 **檔案大小:** {file_size / (1024*1024):.2f} MB",
+                                color=0x2ECC71
+                            )
+                            if file_size < 24 * 1024 * 1024:
+                                file = discord.File(out_path, filename=filename)
+                                await target_ch.send(embed=embed, file=file)
+                            else:
+                                embed.set_footer(text=f"檔案已儲存於本機: {out_path}")
+                                await target_ch.send(embed=embed)
+                except Exception as ex:
+                    logger.error(f"自動錄音輸出上傳失敗: {ex}")
+
+            sink.cleanup()
+            del self.sinks[guild_id]
+
         if guild_id in self.players:
             self.players[guild_id].stop()
             del self.players[guild_id]
 
-        if guild_id in self.sinks:
-            self.sinks[guild_id].cleanup()
-            del self.sinks[guild_id]
-
         self.manual_joins.pop(guild_id, None)
+

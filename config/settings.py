@@ -33,7 +33,7 @@ REPLAY_BUFFER_SECONDS = int(os.getenv("REPLAY_BUFFER_SECONDS", "60"))
 
 # 自動加入語音頻道設定 (當頻道達到指定人數時自動加入)
 AUTO_JOIN_ENABLED = os.getenv("AUTO_JOIN_ENABLED", "true").lower() in ("true", "1", "yes")
-AUTO_JOIN_MIN_MEMBERS = int(os.getenv("AUTO_JOIN_MIN_MEMBERS", "2"))
+AUTO_JOIN_MIN_MEMBERS = int(os.getenv("AUTO_JOIN_MIN_MEMBERS", "1"))
 
 # Google YouTube Music 認證設定
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
