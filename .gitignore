@@ -15,6 +15,7 @@ __pycache__/
 config/oauth.json
 config/browser.json
 config/cookies.txt
+config/guild_settings.json
 
 # Audio Recordings
 recordings/

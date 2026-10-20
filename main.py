@@ -1,5 +1,14 @@
 import os
 import sys
+
+# Windows 終端機 UTF-8 編碼支援 (避免 emoji 列印時發生 cp950 編碼錯誤)
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 import logging
 from pathlib import Path
 
@@ -19,7 +28,6 @@ from music.ytm_client import ytm_client
 
 # 建立 Discord Bot
 intents = discord.Intents.default()
-intents.message_content = True
 intents.voice_states = True
 intents.guilds = True
 
@@ -30,7 +38,8 @@ bot.voice_manager = VoiceManager(bot)
 COGS = [
     "cogs.music_cog",
     "cogs.record_cog",
-    "cogs.auth_cog"
+    "cogs.auth_cog",
+    "cogs.channel_cog"
 ]
 
 for cog in COGS:
@@ -42,14 +51,15 @@ for cog in COGS:
 
 @bot.event
 async def on_ready():
-    print("=" * 60)
-    print(f"  🤖 機器人已成功上線！")
-    print(f"  名稱: {bot.user.name}#{bot.user.discriminator} (ID: {bot.user.id})")
-    print(f"  已連線伺服器數量: {len(bot.guilds)}")
-    print(f"  YouTube Music 登入狀態: {ytm_client.auth_mode}")
-    print(f"  全程自動錄音: {'開啟' if AUTO_RECORD else '關閉'}")
-    print(f"  前一分鐘回放緩衝區長度: {REPLAY_BUFFER_SECONDS} 秒")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info(f"🤖 機器人已成功上線！")
+    logger.info(f"名稱: {bot.user.name}#{bot.user.discriminator} (ID: {bot.user.id})")
+    logger.info(f"已連線伺服器數量: {len(bot.guilds)}")
+    logger.info(f"YouTube Music 登入狀態: {ytm_client.auth_mode}")
+    logger.info(f"全程自動錄音: {'開啟' if AUTO_RECORD else '關閉'}")
+    logger.info(f"前一分鐘回放緩衝區長度: {REPLAY_BUFFER_SECONDS} 秒")
+    logger.info("=" * 60)
+    sys.stdout.flush()
 
     # 設定機器人狀態
     activity = discord.Activity(

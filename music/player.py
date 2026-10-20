@@ -3,6 +3,7 @@ import logging
 from typing import Optional, List
 import discord
 from music.ytdl_source import Song, YTDLSource
+from core.guild_settings import guild_settings
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,16 @@ class GuildPlayer:
         self.text_channel: Optional[discord.TextChannel] = None
         self.player_task: Optional[asyncio.Task] = None
         self.is_stopped: bool = False
+
+    @property
+    def target_text_channel(self) -> Optional[discord.TextChannel]:
+        """優先回傳伺服器設定的專屬音樂頻道，未設定時回傳預設文字頻道"""
+        guild = self.bot.get_guild(self.guild_id)
+        if guild:
+            ch = guild_settings.get_music_channel(guild)
+            if ch:
+                return ch
+        return self.text_channel
 
     @property
     def voice_client(self) -> Optional[discord.VoiceClient]:
@@ -68,8 +79,9 @@ class GuildPlayer:
                 song = await asyncio.wait_for(self.queue.get(), timeout=300.0)
             except asyncio.TimeoutError:
                 if self.voice_client and not self.voice_client.is_playing():
-                    if self.text_channel:
-                        await self.text_channel.send("⏱️ 播放佇列已空閒超過 5 分鐘，機器人已自動離開語音頻道。")
+                    ch = self.target_text_channel
+                    if ch:
+                        await ch.send("⏱️ 播放佇列已空閒超過 5 分鐘，機器人已自動離開語音頻道。")
                     await self.voice_client.disconnect()
                 break
 
@@ -96,13 +108,13 @@ class GuildPlayer:
                 vc.play(source, after=after_playing)
 
                 # 發送正在播放 Embed
-                if self.text_channel:
-                    await self.send_now_playing()
+                await self.send_now_playing()
 
             except Exception as e:
                 logger.error(f"建立音訊來源失敗: {e}")
-                if self.text_channel:
-                    await self.text_channel.send(f"⚠️ 無法播放 **{song.title}**: {e}")
+                ch = self.target_text_channel
+                if ch:
+                    await ch.send(f"⚠️ 無法播放 **{song.title}**: {e}")
                 self.next_event.set()
 
             # 等待當前歌曲播放完畢
@@ -119,9 +131,10 @@ class GuildPlayer:
             self.current = None
             self.current_source = None
 
-    async def send_now_playing(self):
+    async def send_now_playing(self, channel: Optional[discord.TextChannel] = None):
         """發送目前播放中的美觀 Embed 卡片"""
-        if not self.current or not self.text_channel:
+        target = channel or self.target_text_channel
+        if not self.current or not target:
             return
 
         embed = discord.Embed(
@@ -143,7 +156,7 @@ class GuildPlayer:
         embed.set_footer(text="點擊下方按鈕可進行快速控制，或使用 /clip 擷取前一分鐘語音對話")
 
         view = MusicControlView(self)
-        await self.text_channel.send(embed=embed, view=view)
+        await target.send(embed=embed, view=view)
 
     def pause(self):
         vc = self.voice_client

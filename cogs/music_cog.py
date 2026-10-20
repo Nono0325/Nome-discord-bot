@@ -7,6 +7,7 @@ from discord.commands import slash_command, Option
 from music.ytm_client import ytm_client
 from music.ytdl_source import Song, YTDLSource
 from music.player import GuildPlayer
+from core.guild_settings import guild_settings
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +138,11 @@ class MusicCog(commands.Cog):
             embed.add_field(name="時長", value=song.duration, inline=True)
             embed.add_field(name="點播者", value=user_name, inline=True)
             embed.add_field(name="目前佇列位置", value=f"第 {len(player.queue_list)} 位", inline=True)
+            
+            dedicated_ch = guild_settings.get_music_channel(ctx.guild)
+            if dedicated_ch and dedicated_ch.id != ctx.channel.id:
+                embed.add_field(name="📌 專屬音樂頻道", value=f"控制卡片與通知已同步至 {dedicated_ch.mention}", inline=False)
+
             if song.thumbnail:
                 embed.set_thumbnail(url=song.thumbnail)
 
