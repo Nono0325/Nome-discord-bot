@@ -91,7 +91,7 @@ class VoiceChannelSelectDropdown(discord.ui.Select):
             return await interaction.followup.send("❌ 找不到選取的語音頻道或無效的頻道類型！", ephemeral=True)
 
         try:
-            await self.voice_mgr.connect_voice(vc_target, text_channel=self.text_channel)
+            await self.voice_mgr.connect_voice(vc_target, text_channel=self.text_channel, manual=True)
             embed = discord.Embed(
                 title="🔊 已成功加入語音頻道！",
                 description=f"機器人已連線至 {vc_target.mention}，現在可以使用 `/play` 開始點歌！",
@@ -129,7 +129,7 @@ class MusicCog(commands.Cog):
             await ctx.respond("❌ 請先加入一個語音頻道，或在指令中指定要加入的語音頻道！", ephemeral=True)
             return None
 
-        vc = await self.voice_mgr.connect_voice(voice_channel, text_channel=ctx.channel)
+        vc = await self.voice_mgr.connect_voice(voice_channel, text_channel=ctx.channel, manual=True)
         return vc
 
     @slash_command(name="join", description="指定讓機器人加入特定的語音頻道，或自動加入您所在的頻道")
@@ -142,7 +142,7 @@ class MusicCog(commands.Cog):
         if channel:
             await ctx.defer()
             try:
-                await self.voice_mgr.connect_voice(channel, text_channel=ctx.channel)
+                await self.voice_mgr.connect_voice(channel, text_channel=ctx.channel, manual=True)
                 embed = discord.Embed(
                     title="🔊 已成功加入語音頻道！",
                     description=f"機器人已連線至 {channel.mention}，現在可以使用 `/play` 開始點歌！",
@@ -158,7 +158,7 @@ class MusicCog(commands.Cog):
             target = ctx.author.voice.channel
             await ctx.defer()
             try:
-                await self.voice_mgr.connect_voice(target, text_channel=ctx.channel)
+                await self.voice_mgr.connect_voice(target, text_channel=ctx.channel, manual=True)
                 embed = discord.Embed(
                     title="🔊 已成功加入語音頻道！",
                     description=f"機器人已加入您所在的頻道 {target.mention}！",

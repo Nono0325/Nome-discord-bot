@@ -18,6 +18,7 @@ class VoiceManager:
         self.players: Dict[int, GuildPlayer] = {}
         self.sinks: Dict[int, RollingBufferSink] = {}
         self.auto_record: bool = AUTO_RECORD
+        self.manual_joins: Dict[int, bool] = {}
 
     def get_player(self, guild_id: int) -> GuildPlayer:
         if guild_id not in self.players:
@@ -30,12 +31,14 @@ class VoiceManager:
     async def connect_voice(
         self,
         voice_channel: discord.VoiceChannel,
-        text_channel: Optional[discord.TextChannel] = None
+        text_channel: Optional[discord.TextChannel] = None,
+        manual: bool = False
     ) -> discord.VoiceClient:
         """
         連線至語音頻道，並自動啟動語音對話滾動錄音緩衝區
         """
         guild = voice_channel.guild
+        self.manual_joins[guild.id] = manual
         vc = guild.voice_client
 
         if vc and vc.is_connected():
@@ -89,3 +92,5 @@ class VoiceManager:
         if guild_id in self.sinks:
             self.sinks[guild_id].cleanup()
             del self.sinks[guild_id]
+
+        self.manual_joins.pop(guild_id, None)
