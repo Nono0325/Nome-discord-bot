@@ -74,6 +74,11 @@ class RollingBufferSink(Sink):
         if not user_id:
             user_id = 1  # 預設非零標識，避免因未解析成員而丟失語音封包
 
+        # 排除機器人自身的音樂發送封包，確保錄到的是「頻道裡大家的語音對話」
+        bot_user_id = self.vc.user.id if (self.vc and hasattr(self.vc, "user") and self.vc.user) else None
+        if bot_user_id and user_id == bot_user_id:
+            return
+
         # 取得 PCM 數據
         pcm_bytes = b""
         if hasattr(data, "pcm") and data.pcm:
@@ -100,24 +105,50 @@ class RollingBufferSink(Sink):
         if self.is_session_recording:
             self.session_chunks.append((user_id, now, pcm_bytes))
 
+    def _get_snapshot(self) -> Dict[int, List[Tuple[float, bytes]]]:
+        """
+        取得緩衝區快照，排除機器人自身並盡可能將 SSRC 臨時標識對應至真實成員 ID
+        """
+        snapshot: Dict[int, List[Tuple[float, bytes]]] = {}
+        bot_id = self.vc.user.id if (self.vc and hasattr(self.vc, "user") and self.vc.user) else None
+
+        for raw_id, chunks in self.rolling_buffers.items():
+            if bot_id and raw_id == bot_id:
+                continue
+
+            target_id = raw_id
+            if raw_id < 1000000000000 and self.vc:
+                resolved_id = None
+                if hasattr(self.vc, "_connection") and hasattr(self.vc._connection, "ssrc_user_map"):
+                    resolved_id = self.vc._connection.ssrc_user_map.get(raw_id)
+                if not resolved_id and hasattr(self.vc, "_ssrc_to_id"):
+                    resolved_id = self.vc._ssrc_to_id.get(raw_id)
+                if resolved_id and resolved_id != bot_id:
+                    target_id = resolved_id
+
+            if bot_id and target_id == bot_id:
+                continue
+
+            if target_id not in snapshot:
+                snapshot[target_id] = []
+            snapshot[target_id].extend(chunks)
+
+        return snapshot
+
     def get_replay_audio(self, duration_seconds: float = 60.0) -> Tuple[io.BytesIO, List[int]]:
         """
-        即時混音並輸出過去指定秒數（預設 60 秒）的對話 MP3
+        即時混音並輸出過去指定秒數（預設 60 秒）的大家對話 MP3
         """
         now = time.time()
-        data_snapshot = {
-            u_id: list(chunks) for u_id, chunks in self.rolling_buffers.items()
-        }
+        data_snapshot = self._get_snapshot()
         return AudioMixer.mix_replay_buffer(data_snapshot, duration_seconds, end_time=now)
 
     async def get_replay_audio_async(self, duration_seconds: float = 60.0) -> Tuple[io.BytesIO, List[int]]:
         """
-        [多工處理] 非同步即時混音並輸出過去指定秒數的對話 MP3（不卡 Discord 事件循環）
+        [多工處理] 非同步即時混音並輸出過去指定秒數的對話 MP3（不卡死 Discord 播歌循環）
         """
         now = time.time()
-        data_snapshot = {
-            u_id: list(chunks) for u_id, chunks in self.rolling_buffers.items()
-        }
+        data_snapshot = self._get_snapshot()
         return await AudioMixer.mix_replay_buffer_async(data_snapshot, duration_seconds, end_time=now)
 
     def start_session_recording(self):

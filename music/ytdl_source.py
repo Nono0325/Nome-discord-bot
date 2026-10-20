@@ -29,10 +29,10 @@ YTDL_OPTIONS: Dict[str, Any] = {
 if COOKIES_TXT_PATH.exists():
     YTDL_OPTIONS["cookiefile"] = str(COOKIES_TXT_PATH)
 
-# FFmpeg 串流播放參數
+# FFmpeg 串流播放參數 (增加網路斷線自動重連與大緩衝區，杜絕播放卡頓)
 FFMPEG_OPTIONS = {
-    "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
-    "options": "-vn"
+    "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -reconnect_at_eof 1",
+    "options": "-vn -bufsize 4096k"
 }
 
 ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)

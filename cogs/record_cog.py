@@ -75,7 +75,21 @@ class RecordCog(commands.Cog):
                     else:
                         speakers.append(f"成員({uid})")
                 else:
-                    speakers.append("語音成員")
+                    member_name = None
+                    if sink.vc:
+                        real_uid = sink.vc._ssrc_to_id.get(uid)
+                        if not real_uid and hasattr(sink.vc, "_connection"):
+                            real_uid = sink.vc._connection.ssrc_user_map.get(uid)
+                        if real_uid:
+                            m = guild.get_member(real_uid) if guild else None
+                            if not m:
+                                m = self.bot.get_user(real_uid)
+                            if m:
+                                member_name = m.display_name
+                    if member_name:
+                        speakers.append(f"**{member_name}**")
+                    else:
+                        speakers.append(f"語音成員(軌道 {uid})")
             speakers_str = ", ".join(speakers) if speakers else "語音成員"
 
             timestr = time.strftime("%Y%m%d_%H%M%S")

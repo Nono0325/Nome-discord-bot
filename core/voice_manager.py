@@ -43,7 +43,13 @@ class VoiceManager:
 
         if vc and vc.is_connected():
             if vc.channel.id != voice_channel.id:
+                if vc.is_recording():
+                    try:
+                        vc.stop_recording()
+                    except Exception:
+                        pass
                 await vc.move_to(voice_channel)
+                await asyncio.sleep(0.5)
         else:
             vc = await voice_channel.connect(timeout=60.0, reconnect=True)
 

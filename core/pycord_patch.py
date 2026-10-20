@@ -77,7 +77,7 @@ def apply_pycord_patches():
 
         PacketDecoder._decode_packet = _patched_decode_packet
 
-        # 3. 補丁 PacketDecryptor._decrypt_rtp_aead_xchacha20_poly1305_rtpsize：防止損毀 UDP 封包刷屏報錯
+        # 3. 補丁 PacketDecryptor._decrypt_rtp_aead_xchacha20_poly1305_rtpsize：修復官方裁切 8 bytes 嚴重損毀 Opus 封包問題
         def _safe_decrypt_aead(self, packet):
             packet.adjust_rtpsize()
             nonce = packet.nonce + b"\x00" * 20
@@ -91,13 +91,14 @@ def apply_pycord_patches():
                 return OPUS_SILENCE
 
             if packet.extended:
-                packet.update_extended_header(result)
+                offset = packet.update_extended_header(result)
+                return result[offset:]
 
-            return result[8:]
+            return result
 
         PacketDecryptor._decrypt_rtp_aead_xchacha20_poly1305_rtpsize = _safe_decrypt_aead
 
-        # 4. 補丁 PacketDecryptor.decrypt_rtp：確保非 DAVE 或未就緒時音訊不為 None
+        # 4. 補丁 PacketDecryptor.decrypt_rtp：支援 DAVE 端到端解密並保證非 DAVE 成員無縫 fallback
         def _patched_decrypt_rtp(self, packet):
             state = self.client._connection
             dave = state.dave_session
@@ -121,21 +122,13 @@ def apply_pycord_patches():
                             davey.MediaType.audio,
                             raw_payload,
                         )
-                        if packet.extended:
-                            offset = packet.update_extended_header(decrypted_audio)
-                            packet.decrypted_data = decrypted_audio[offset:]
-                        else:
-                            packet.decrypted_data = decrypted_audio
+                        packet.decrypted_data = decrypted_audio
                     except Exception:
-                        packet.decrypted_data = OPUS_SILENCE
+                        packet.decrypted_data = raw_payload
                 else:
-                    packet.decrypted_data = OPUS_SILENCE
+                    packet.decrypted_data = raw_payload
             else:
-                data = raw_payload
-                if packet.extended:
-                    offset = packet.update_extended_header(data)
-                    data = data[offset:]
-                packet.decrypted_data = data
+                packet.decrypted_data = raw_payload
 
             if packet.decrypted_data is None:
                 packet.decrypted_data = OPUS_SILENCE
@@ -143,6 +136,23 @@ def apply_pycord_patches():
             return packet.decrypted_data
 
         PacketDecryptor.decrypt_rtp = _patched_decrypt_rtp
+
+        # 5. 補丁 PacketRouter.run：防止停止錄音時拋出 RecordingException 導致線程崩潰
+        def _patched_run(self):
+            try:
+                self._do_run()
+            except Exception as exc:
+                logger.debug("PacketRouter 迴圈異常: %s", exc)
+                self.reader.error = exc
+            finally:
+                try:
+                    if self.reader.client.is_recording():
+                        self.reader.client.stop_recording()
+                except Exception:
+                    pass
+                self.waiter.clear()
+
+        PacketRouter.run = _patched_run
         logger.info("已成功套用 Pycord 語音接收熱修復補丁 (Pycord voice-recv patch applied)")
     except Exception as e:
         logger.warning(f"套用 Pycord 補丁時發生例外: {e}")
