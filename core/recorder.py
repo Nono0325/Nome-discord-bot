@@ -15,15 +15,11 @@ class RollingBufferSink(Sink):
     1. 維護最近 60 秒的循環緩衝區（Rolling Buffer），供隨時擷取前一分鐘對話。
     2. 支援全場自動錄音並存檔。
     """
+    __sink_listeners__ = ()
 
     def __init__(self, buffer_seconds: float = 65.0, auto_record: bool = False, *, filters=None):
-        if filters is None:
-            filters = default_filters
-        self.filters = filters
-        Filters.__init__(self, **self.filters)
-
+        super().__init__(filters=filters)
         self.encoding = "pcm"
-        self.vc = None
         self.buffer_seconds = buffer_seconds
         
         # 循環緩衝區: {user_id: deque([(timestamp, pcm_bytes), ...])}
@@ -35,7 +31,15 @@ class RollingBufferSink(Sink):
         self.session_start_time = time.time()
         self.session_end_time: float | None = None
 
-    @Filters.container
+    def is_opus(self) -> bool:
+        return False
+
+    def walk_children(self):
+        return ()
+
+    def format_audio(self, audio):
+        pass
+
     def write(self, data, user):
         """
         接收到語音封包回呼函式
@@ -43,7 +47,21 @@ class RollingBufferSink(Sink):
         now = time.time()
         
         # 取得使用者 ID
-        user_id = user.id if hasattr(user, "id") else (user if isinstance(user, int) else 0)
+        user_id = 0
+        if user and hasattr(user, "id"):
+            user_id = user.id
+        elif isinstance(user, int) and user != 0:
+            user_id = user
+        elif hasattr(data, "source") and data.source and hasattr(data.source, "id"):
+            user_id = data.source.id
+        elif hasattr(data, "packet") and hasattr(data.packet, "ssrc"):
+            if self.vc and hasattr(self.vc, "_ssrc_to_id"):
+                user_id = self.vc._ssrc_to_id.get(data.packet.ssrc, data.packet.ssrc)
+            else:
+                user_id = data.packet.ssrc
+
+        if not user_id:
+            user_id = 1  # 預設非零標識，避免因未解析成員而丟失語音封包
 
         # 取得 PCM 數據
         pcm_bytes = b""

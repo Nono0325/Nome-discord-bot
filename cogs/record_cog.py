@@ -63,7 +63,7 @@ class RecordCog(commands.Cog):
                 return await interaction_or_ctx.respond(embed=embed)
 
             # 格式化參與說話的成員標註
-            speakers_str = ", ".join([f"<@{uid}>" for uid in active_uids])
+            speakers_str = ", ".join([f"<@{uid}>" if uid > 1000000000000 else "語音成員" for uid in active_uids])
 
             timestr = time.strftime("%Y%m%d_%H%M%S")
             filename = f"clip_{seconds}s_{timestr}.mp3"
@@ -179,7 +179,7 @@ class RecordCog(commands.Cog):
             if chunks and now - chunks[-1][0] < 60.0:
                 active_in_60s.append(uid)
 
-        speakers_str = ", ".join([f"<@{uid}>" for uid in active_in_60s]) if active_in_60s else "最近無人說話"
+        speakers_str = ", ".join([f"<@{uid}>" if uid > 1000000000000 else "語音成員" for uid in active_in_60s]) if active_in_60s else "最近無人說話"
 
         embed = discord.Embed(
             title="📊 語音錄製與緩衝區狀態",

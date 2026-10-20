@@ -57,14 +57,14 @@ class VoiceManager:
             )
             self.sinks[guild.id] = sink
 
-            def record_finished_callback(sink_obj, exc=None):
+            def record_finished_callback(*args, **kwargs):
                 logger.info(f"伺服器 {guild.id} 的語音錄音已結束。")
 
             try:
                 vc.start_recording(sink, record_finished_callback)
                 logger.info(f"已在語音頻道 {voice_channel.name} 啟動循環對話緩衝區 (自動錄音={self.auto_record})")
             except Exception as e:
-                logger.warning(f"啟動語音接收器時發生例外: {e}")
+                logger.error(f"啟動語音接收器時發生例外: {e}", exc_info=True)
 
         return vc
 
