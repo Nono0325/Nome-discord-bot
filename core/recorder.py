@@ -105,11 +105,20 @@ class RollingBufferSink(Sink):
         即時混音並輸出過去指定秒數（預設 60 秒）的對話 MP3
         """
         now = time.time()
-        # 轉成一般列表以供 mixer 處理
         data_snapshot = {
             u_id: list(chunks) for u_id, chunks in self.rolling_buffers.items()
         }
         return AudioMixer.mix_replay_buffer(data_snapshot, duration_seconds, end_time=now)
+
+    async def get_replay_audio_async(self, duration_seconds: float = 60.0) -> Tuple[io.BytesIO, List[int]]:
+        """
+        [多工處理] 非同步即時混音並輸出過去指定秒數的對話 MP3（不卡 Discord 事件循環）
+        """
+        now = time.time()
+        data_snapshot = {
+            u_id: list(chunks) for u_id, chunks in self.rolling_buffers.items()
+        }
+        return await AudioMixer.mix_replay_buffer_async(data_snapshot, duration_seconds, end_time=now)
 
     def start_session_recording(self):
         """
@@ -143,6 +152,33 @@ class RollingBufferSink(Sink):
         )
         self.session_chunks.clear()
         logger.info(f"完整錄音會話已儲存至: {out_path}")
+        return out_path
+
+    async def stop_session_recording_async(self, filename: str | None = None) -> str | None:
+        """
+        [多工處理] 非同步停止會話錄音並輸出為 MP3 檔案
+        """
+        if not self.is_session_recording or not self.session_chunks:
+            self.is_session_recording = False
+            return None
+
+        self.session_end_time = time.time()
+        self.is_session_recording = False
+
+        if not filename:
+            timestr = time.strftime("%Y%m%d_%H%M%S")
+            filename = f"record_{timestr}.mp3"
+
+        snapshot_chunks = list(self.session_chunks)
+        self.session_chunks.clear()
+
+        out_path = await AudioMixer.mix_full_session_async(
+            snapshot_chunks,
+            self.session_start_time,
+            self.session_end_time,
+            filename
+        )
+        logger.info(f"完整錄音會話已非同步儲存至: {out_path}")
         return out_path
 
     def cleanup(self):

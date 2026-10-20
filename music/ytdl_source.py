@@ -83,6 +83,29 @@ class YTDLSource(discord.PCMVolumeTransformer):
         return cls(audio_source, song=song, volume=volume)
 
     @classmethod
+    async def prefetch_stream(cls, song: Song):
+        """
+        [多工處理] 在背景提前解析下一首歌曲的串流網址，實現零延遲秒切換歌曲
+        """
+        if song.stream_url:
+            return
+        loop = asyncio.get_running_loop()
+
+        def extract():
+            try:
+                info = ytdl.extract_info(song.webpage_url, download=False)
+                if "entries" in info:
+                    info = info["entries"][0]
+                return info.get("url")
+            except Exception as e:
+                logger.debug(f"背景預先解析串流網址失敗 ({song.title}): {e}")
+                return None
+
+        url = await loop.run_in_executor(None, extract)
+        if url:
+            song.stream_url = url
+
+    @classmethod
     async def from_query(cls, query: str, requester: str = "未知使用者") -> Song:
         """
         直接從搜尋詞或一般 YouTube 網址建立 Song 物件

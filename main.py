@@ -45,12 +45,17 @@ intents.guilds = True
 bot = discord.Bot(intents=intents)
 bot.voice_manager = VoiceManager(bot)
 
+# 設定音訊接收日誌等級（避免損毀封包資訊刷屏）
+logging.getLogger("discord.opus").setLevel(logging.WARNING)
+logging.getLogger("discord.voice.receive.reader").setLevel(logging.WARNING)
+
 # 載入 Cogs
 COGS = [
     "cogs.music_cog",
     "cogs.record_cog",
     "cogs.auth_cog",
-    "cogs.channel_cog"
+    "cogs.channel_cog",
+    "cogs.admin_cog"
 ]
 
 for cog in COGS:

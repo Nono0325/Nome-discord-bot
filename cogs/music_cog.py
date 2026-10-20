@@ -68,6 +68,65 @@ class PlaylistSelectView(discord.ui.View):
         super().__init__(timeout=120)
         self.add_item(PlaylistSelect(playlists, player))
 
+class GenreSelect(discord.ui.Select):
+    """
+    YouTube Music 曲風與情境音樂下拉選單
+    """
+    def __init__(self, player: GuildPlayer):
+        from music.ytm_client import GENRES_MAP
+        options = []
+        for key, g in GENRES_MAP.items():
+            options.append(
+                discord.SelectOption(
+                    label=g["name"][:95],
+                    value=key,
+                    description=g["description"][:95],
+                    emoji=g["emoji"]
+                )
+            )
+        super().__init__(placeholder="🎵 請選擇想聆聽的音樂曲風或情境...", min_values=1, max_values=1, options=options)
+        self.player = player
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        from music.ytm_client import ytm_client, GENRES_MAP
+        import asyncio
+        genre_key = self.values[0]
+        g_info = GENRES_MAP.get(genre_key, {"name": genre_key, "emoji": "🎵"})
+
+        try:
+            songs = await asyncio.to_thread(ytm_client.get_genre_songs, genre_key, 20)
+            if not songs:
+                return await interaction.followup.send(f"⚠️ 找不到與 {g_info['name']} 相關的曲目。")
+
+            user_name = interaction.user.display_name
+            for s in songs:
+                song_obj = Song(
+                    id=s["id"],
+                    title=s["title"],
+                    artist=s["artist"],
+                    duration=s["duration"],
+                    thumbnail=s["thumbnail"],
+                    webpage_url=s["url"],
+                    requester=f"{user_name} ({g_info['name']})"
+                )
+                await self.player.add_song(song_obj)
+
+            embed = discord.Embed(
+                title=f"{g_info['emoji']} 已載入 {g_info['name']} 精選曲目！",
+                description=f"已成功為您隨機混音並加入 **{len(songs)}** 首好歌至播放佇列！",
+                color=0x9B59B6
+            )
+            await interaction.followup.send(embed=embed)
+        except Exception as e:
+            await interaction.followup.send(f"❌ 載入曲風失敗: {e}")
+
+class GenreSelectView(discord.ui.View):
+    def __init__(self, player: GuildPlayer):
+        super().__init__(timeout=120)
+        self.add_item(GenreSelect(player))
+
+
 class VoiceChannelSelectDropdown(discord.ui.Select):
     """
     互動式語音頻道下拉選單
@@ -426,9 +485,11 @@ class MusicCog(commands.Cog):
         if player.queue_list:
             tracks_str = ""
             for idx, s in enumerate(player.queue_list[:10], start=1):
-                tracks_str += f"`{idx}.` **[{s.title}]({s.webpage_url})** ({s.duration}) - {s.requester}\n"
+                tracks_str += f"`{idx}.` **[{s.title[:45]}]({s.webpage_url})** ({s.duration}) - {s.requester}\n"
             if len(player.queue_list) > 10:
                 tracks_str += f"\n*...以及後續還有 {len(player.queue_list) - 10} 首歌曲*"
+            if len(tracks_str) > 1000:
+                tracks_str = tracks_str[:980] + "...\n*(過多歌曲已折疊)*"
             embed.add_field(name="⏳ 佇列中的歌曲", value=tracks_str, inline=False)
 
         await ctx.respond(embed=embed)
@@ -472,16 +533,151 @@ class MusicCog(commands.Cog):
     @slash_command(name="shuffle", description="隨機打亂當前播放清單")
     async def shuffle(self, ctx: discord.ApplicationContext):
         player = self.voice_mgr.get_player(ctx.guild.id)
-        if len(player.queue_list) < 2:
+        count = player.shuffle()
+        if count < 2:
             return await ctx.respond("佇列中的歌曲少於 2 首，無法隨機排列。")
+        await ctx.respond(f"🔀 已成功打亂 **{count}** 首歌曲順序！")
 
-        random.shuffle(player.queue_list)
-        # 重新建置 asyncio.Queue
-        new_q = asyncio.Queue()
-        for s in player.queue_list:
-            new_q.put_nowait(s)
-        player.queue = new_q
-        await ctx.respond("🔀 已成功打亂播放佇列順序！")
+    @slash_command(name="autoplay", description="切換無盡推薦電台模式（佇列結束時自動推薦並續播相似歌曲）")
+    async def autoplay(
+        self,
+        ctx: discord.ApplicationContext,
+        enabled: Option(bool, "是否開啟無盡電台模式 (留空則切換)", required=False, default=None)
+    ):
+        player = self.voice_mgr.get_player(ctx.guild.id)
+        if enabled is None:
+            player.autoplay = not player.autoplay
+        else:
+            player.autoplay = enabled
+
+        status_text = "🟢 **已開啟** 無盡推薦電台模式！\n當播放佇列播放完畢時，機器人將自動推薦相似好歌無縫續播，音樂不中斷！" if player.autoplay else "⚪ **已關閉** 無盡電台模式。"
+        embed = discord.Embed(
+            title="📻 無盡電台設定變更",
+            description=status_text,
+            color=0x2ECC71 if player.autoplay else 0x95A5A6
+        )
+        await ctx.respond(embed=embed)
+
+    @slash_command(name="genre", description="播放指定風格或情境的音樂 (動漫, Lo-Fi, 搖滾, 流行, 爵士, 嘻哈, 電音, 助眠...)")
+    async def genre(
+        self,
+        ctx: discord.ApplicationContext,
+        style: Option(
+            str,
+            "選擇預設曲風或自由輸入關鍵字",
+            choices=[
+                "🌸 anime - J-Pop / 動漫精選",
+                "🎧 lofi - Lo-Fi 放鬆 / 專注讀書",
+                "🎤 pop - 全球熱門流行 (Pop Hits)",
+                "🎸 rock - 搖滾魂 (Rock & Metal)",
+                "☕ jazz - 爵士咖啡廳 (Jazz & Cafe)",
+                "⚡ hiphop - 嘻哈饒舌 (Hip-Hop & Rap)",
+                "💃 edm - 電音舞曲 (EDM & Dance)",
+                "🌙 sleep - 深夜抒情 / 助眠放鬆",
+                "🏋️ workout - 熱血健身 (Workout & Gym)",
+                "🎮 gaming - 遊戲原聲帶 (Gaming OST)",
+                "🏮 mandopop - 經典華語流行 (Mandopop)",
+                "🇰🇷 kpop - K-Pop 韓流大勢"
+            ],
+            required=True
+        )
+    ):
+        await ctx.defer()
+        vc = await self._ensure_voice(ctx)
+        if not vc:
+            return
+
+        import asyncio
+        from music.ytm_client import GENRES_MAP
+        # 擷取代碼 (例如 "🌸 anime - J-Pop" -> "anime")
+        key = style.split(" - ")[0].split()[-1].lower() if " - " in style else style.lower()
+        g_info = GENRES_MAP.get(key, {"name": style, "emoji": "🎵"})
+
+        player = self.voice_mgr.get_player(ctx.guild.id)
+        player.text_channel = ctx.channel
+
+        try:
+            songs = await asyncio.to_thread(ytm_client.get_genre_songs, key, 25)
+            if not songs:
+                return await ctx.respond(f"⚠️ 找不到與 {g_info['name']} 相關的曲目。")
+
+            user_name = ctx.author.display_name
+            for s in songs:
+                song_obj = Song(
+                    id=s["id"],
+                    title=s["title"],
+                    artist=s["artist"],
+                    duration=s["duration"],
+                    thumbnail=s["thumbnail"],
+                    webpage_url=s["url"],
+                    requester=f"{user_name} ({g_info['name']})"
+                )
+                await player.add_song(song_obj)
+
+            embed = discord.Embed(
+                title=f"{g_info['emoji']} 已載入 {g_info['name']} 曲風！",
+                description=f"已成功為您隨機混音並加入 **{len(songs)}** 首精選好歌至播放佇列！\n點擊下方按鈕或輸入 `/queue` 查看清單。",
+                color=0x9B59B6
+            )
+            await ctx.respond(embed=embed)
+        except Exception as e:
+            await ctx.respond(f"❌ 載入曲風失敗: {e}")
+
+    @slash_command(name="genres", description="開啟 YouTube Music 曲風與情境音樂選擇選單")
+    async def genres(self, ctx: discord.ApplicationContext):
+        vc = await self._ensure_voice(ctx)
+        if not vc:
+            return
+
+        player = self.voice_mgr.get_player(ctx.guild.id)
+        player.text_channel = ctx.channel
+
+        embed = discord.Embed(
+            title="🎧 YouTube Music 曲風與情境音樂專區",
+            description="請從下方選單挑選您想聆聽的音樂風格或氛圍，機器人將自動為您載入精選歌單並隨機播放：",
+            color=0x9B59B6
+        )
+        view = GenreSelectView(player)
+        await ctx.respond(embed=embed, view=view)
+
+    @slash_command(name="random_play", description="隨機播放當前熱門流行歌曲或隨機精選合輯")
+    async def random_play(self, ctx: discord.ApplicationContext):
+        await ctx.defer()
+        vc = await self._ensure_voice(ctx)
+        if not vc:
+            return
+
+        import asyncio
+        player = self.voice_mgr.get_player(ctx.guild.id)
+        player.text_channel = ctx.channel
+
+        try:
+            songs = await asyncio.to_thread(ytm_client.get_random_popular_songs, 15)
+            if not songs:
+                return await ctx.respond("⚠️ 取得熱門推薦歌曲失敗。")
+
+            user_name = ctx.author.display_name
+            for s in songs:
+                song_obj = Song(
+                    id=s["id"],
+                    title=s["title"],
+                    artist=s["artist"],
+                    duration=s["duration"],
+                    thumbnail=s["thumbnail"],
+                    webpage_url=s["url"],
+                    requester=f"{user_name} (隨機探索)"
+                )
+                await player.add_song(song_obj)
+
+            embed = discord.Embed(
+                title="🎲 隨機流行音樂大探索！",
+                description=f"已隨機挑選 **{len(songs)}** 首熱門單曲加入播放佇列！",
+                color=0x3498DB
+            )
+            await ctx.respond(embed=embed)
+        except Exception as e:
+            await ctx.respond(f"❌ 隨機探索失敗: {e}")
 
 def setup(bot: discord.Bot):
     bot.add_cog(MusicCog(bot))
+

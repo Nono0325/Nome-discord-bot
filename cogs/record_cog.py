@@ -48,7 +48,7 @@ class RecordCog(commands.Cog):
 
         try:
             seconds = max(5, min(180, seconds))
-            mp3_buf, active_uids = sink.get_replay_audio(duration_seconds=float(seconds))
+            mp3_buf, active_uids = await sink.get_replay_audio_async(duration_seconds=float(seconds))
 
             # 檢查檔案大小是否大於 100KB (排除全靜音無人講話的情況)
             mp3_size = len(mp3_buf.getvalue())
@@ -161,7 +161,7 @@ class RecordCog(commands.Cog):
 
         timestr = time.strftime("%Y%m%d_%H%M%S")
         filename = f"session_{timestr}.mp3"
-        out_path = sink.stop_session_recording(filename)
+        out_path = await sink.stop_session_recording_async(filename)
 
         if not out_path or not os.path.exists(out_path):
             return await ctx.respond("⚠️ 錄音會話中沒有錄到任何成員語音數據。")

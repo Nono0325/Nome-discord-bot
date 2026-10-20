@@ -1,3 +1,4 @@
+import random
 import asyncio
 import logging
 from typing import Optional, List
@@ -10,6 +11,7 @@ logger = logging.getLogger(__name__)
 class GuildPlayer:
     """
     負責單一 Discord 伺服器 (Guild) 的音樂播放佇列與播放控制
+    具備多工非同步預載 (Prefetching) 與無盡電台模式 (Autoplay)
     """
 
     def __init__(self, bot: discord.Bot, guild_id: int):
@@ -26,9 +28,11 @@ class GuildPlayer:
         self.next_event = asyncio.Event()
         self.volume: float = 0.5
         self.loop_mode: str = "off"  # "off", "song", "queue"
+        self.autoplay: bool = False   # 無盡推薦電台模式
         
         self.text_channel: Optional[discord.TextChannel] = None
         self.player_task: Optional[asyncio.Task] = None
+        self.prefetch_task: Optional[asyncio.Task] = None
         self.is_stopped: bool = False
 
     @property
@@ -56,7 +60,6 @@ class GuildPlayer:
         """加入歌曲至佇列"""
         if to_front:
             self.queue_list.insert(0, song)
-            # 重新建置 asyncio.Queue
             new_q = asyncio.Queue()
             new_q.put_nowait(song)
             while not self.queue.empty():
@@ -67,11 +70,79 @@ class GuildPlayer:
             await self.queue.put(song)
             
         self.start_loop()
+        self.trigger_prefetch()
+
+    def trigger_prefetch(self):
+        """[多工處理] 觸發下一首歌曲串流網址的背景提前解析"""
+        if self.queue_list and (self.prefetch_task is None or self.prefetch_task.done()):
+            next_song = self.queue_list[0]
+            if not next_song.stream_url:
+                self.prefetch_task = self.bot.loop.create_task(
+                    YTDLSource.prefetch_stream(next_song)
+                )
+
+    def shuffle(self) -> int:
+        """[隨機播放] 隨機混洗當前佇列"""
+        if len(self.queue_list) < 2:
+            return len(self.queue_list)
+
+        random.shuffle(self.queue_list)
+        new_q = asyncio.Queue()
+        for s in self.queue_list:
+            new_q.put_nowait(s)
+        self.queue = new_q
+        self.trigger_prefetch()
+        return len(self.queue_list)
+
+    async def _fetch_autoplay_recommendations(self):
+        """[無盡電台] 當佇列用盡時，自動向 YouTube Music 推薦相似好歌加入佇列"""
+        from music.ytm_client import ytm_client
+        seed_id = None
+        if self.current:
+            seed_id = self.current.id
+        elif self.history:
+            seed_id = self.history[-1].id
+
+        if not seed_id:
+            return
+
+        try:
+            logger.info(f"無盡電台模式啟用中，正在為曲目 {seed_id} 探索自動推薦歌曲...")
+            radio_songs = await asyncio.to_thread(ytm_client.get_radio_songs, seed_id)
+            if radio_songs:
+                # 排除已在歷史記錄中的歌曲
+                history_ids = {h.id for h in self.history[-20:]}
+                added_count = 0
+                for r in radio_songs[:5]:
+                    if r["id"] in history_ids:
+                        continue
+                    new_song = Song(
+                        id=r["id"],
+                        title=r["title"],
+                        artist=r["artist"],
+                        duration=r["duration"],
+                        thumbnail=r["thumbnail"],
+                        webpage_url=r["url"],
+                        requester="🤖 YouTube Music 無盡推薦"
+                    )
+                    await self.add_song(new_song)
+                    added_count += 1
+
+                if added_count > 0:
+                    ch = self.target_text_channel
+                    if ch:
+                        await ch.send(f"📻 **無盡電台**：已自動無縫載入 **{added_count}** 首推薦音樂！")
+        except Exception as e:
+            logger.error(f"無盡電台推薦獲取失敗: {e}")
 
     async def _player_loop(self):
         """核心播放循環"""
         while not self.is_stopped:
             self.next_event.clear()
+
+            # 檢查是否需要自動填充推薦歌曲
+            if self.autoplay and self.queue.empty():
+                await self._fetch_autoplay_recommendations()
 
             # 等候下一首歌曲
             try:
@@ -95,6 +166,9 @@ class GuildPlayer:
             if not vc or not vc.is_connected():
                 logger.warning("語音客戶端未連線，停止播放迴圈。")
                 break
+
+            # 觸發下一首歌曲的預載
+            self.trigger_prefetch()
 
             try:
                 source = await YTDLSource.create_source(song, volume=self.volume)
@@ -148,6 +222,7 @@ class GuildPlayer:
         
         loop_str = {"off": "關閉", "song": "單曲循環", "queue": "清單循環"}.get(self.loop_mode, "關閉")
         embed.add_field(name="循環模式", value=loop_str, inline=True)
+        embed.add_field(name="無盡電台", value="🟢 開啟" if self.autoplay else "⚪ 關閉", inline=True)
         embed.add_field(name="音量", value=f"{int(self.volume * 100)}%", inline=True)
         embed.add_field(name="佇列尚餘", value=f"{len(self.queue_list)} 首", inline=True)
 
@@ -190,16 +265,30 @@ class GuildPlayer:
         if self.current_source:
             self.current_source.volume = self.volume
 
+
 class MusicControlView(discord.ui.View):
     """
-    即時控制按鈕視圖 (暫停/播放、下一首、停止、1分鐘回放剪輯)
+    即時控制按鈕視圖：
+    包含暫停/播放、下一首、隨機混洗、無盡電台開關、停止播放與 1 分鐘語音剪輯
     """
 
     def __init__(self, player: GuildPlayer):
         super().__init__(timeout=180)
         self.player = player
+        # 更新按鈕樣式以反映目前無盡電台狀態
+        self.update_button_styles()
 
-    @discord.ui.button(label="暫停 / 繼續", style=discord.ButtonStyle.primary, emoji="⏯️")
+    def update_button_styles(self):
+        for child in self.children:
+            if hasattr(child, "custom_id") and child.custom_id == "toggle_autoplay":
+                if self.player.autoplay:
+                    child.style = discord.ButtonStyle.success
+                    child.label = "無盡電台: 開"
+                else:
+                    child.style = discord.ButtonStyle.secondary
+                    child.label = "無盡電台: 關"
+
+    @discord.ui.button(label="暫停 / 繼續", style=discord.ButtonStyle.primary, emoji="⏯️", row=0)
     async def toggle_play(self, button: discord.ui.Button, interaction: discord.Interaction):
         vc = self.player.voice_client
         if not vc:
@@ -214,21 +303,35 @@ class MusicControlView(discord.ui.View):
         else:
             await interaction.response.send_message("目前無音訊正在播放。", ephemeral=True)
 
-    @discord.ui.button(label="下一首", style=discord.ButtonStyle.secondary, emoji="⏭️")
+    @discord.ui.button(label="下一首", style=discord.ButtonStyle.secondary, emoji="⏭️", row=0)
     async def skip_track(self, button: discord.ui.Button, interaction: discord.Interaction):
         self.player.skip()
         await interaction.response.send_message("⏭️ 已跳至下一首！", ephemeral=True)
 
-    @discord.ui.button(label="停止播放", style=discord.ButtonStyle.danger, emoji="⏹️")
-    async def stop_player(self, button: discord.ui.Button, interaction: discord.Interaction):
-        self.player.stop()
-        await interaction.response.send_message("⏹️ 已停止播放並清空佇列！", ephemeral=True)
+    @discord.ui.button(label="隨機混洗", style=discord.ButtonStyle.secondary, emoji="🔀", row=0)
+    async def shuffle_queue(self, button: discord.ui.Button, interaction: discord.Interaction):
+        count = self.player.shuffle()
+        if count < 2:
+            return await interaction.response.send_message("⚠️ 佇列歌曲少於 2 首，無法隨機排列。", ephemeral=True)
+        await interaction.response.send_message(f"🔀 已成功打亂 **{count}** 首歌曲順序！", ephemeral=True)
 
-    @discord.ui.button(label="擷取前 1 分鐘對話", style=discord.ButtonStyle.success, emoji="🎬")
+    @discord.ui.button(label="無盡電台: 關", style=discord.ButtonStyle.secondary, emoji="🔁", custom_id="toggle_autoplay", row=1)
+    async def toggle_autoplay(self, button: discord.ui.Button, interaction: discord.Interaction):
+        self.player.autoplay = not self.player.autoplay
+        self.update_button_styles()
+        status_str = "🟢 已開啟無盡推薦電台！佇列結束時將自動續播相似歌曲。" if self.player.autoplay else "⚪ 已關閉無盡電台。"
+        await interaction.response.edit_message(view=self)
+        await interaction.followup.send(status_str, ephemeral=True)
+
+    @discord.ui.button(label="前 1 分鐘對話", style=discord.ButtonStyle.success, emoji="🎬", row=1)
     async def clip_replay(self, button: discord.ui.Button, interaction: discord.Interaction):
-        # 轉交給錄音 cog 處理
         rec_cog = interaction.client.get_cog("RecordCog")
         if rec_cog:
             await rec_cog.handle_clip(interaction, seconds=60)
         else:
             await interaction.response.send_message("❌ 錄音模組未啟用！", ephemeral=True)
+
+    @discord.ui.button(label="停止播放", style=discord.ButtonStyle.danger, emoji="⏹️", row=1)
+    async def stop_player(self, button: discord.ui.Button, interaction: discord.Interaction):
+        self.player.stop()
+        await interaction.response.send_message("⏹️ 已停止播放並清空佇列！", ephemeral=True)
