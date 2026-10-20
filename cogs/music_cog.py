@@ -68,6 +68,44 @@ class PlaylistSelectView(discord.ui.View):
         super().__init__(timeout=120)
         self.add_item(PlaylistSelect(playlists, player))
 
+class VoiceChannelSelectDropdown(discord.ui.Select):
+    """
+    互動式語音頻道下拉選單
+    """
+    def __init__(self, voice_mgr, text_channel):
+        super().__init__(
+            select_type=discord.ComponentType.channel_select,
+            placeholder="請選擇要讓機器人加入的語音頻道...",
+            min_values=1,
+            max_values=1,
+            channel_types=[discord.ChannelType.voice, discord.ChannelType.stage_voice]
+        )
+        self.voice_mgr = voice_mgr
+        self.text_channel = text_channel
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        selected_channel = self.values[0]
+        vc_target = interaction.guild.get_channel(selected_channel.id)
+        if not vc_target or not isinstance(vc_target, (discord.VoiceChannel, discord.StageChannel)):
+            return await interaction.followup.send("❌ 找不到選取的語音頻道或無效的頻道類型！", ephemeral=True)
+
+        try:
+            await self.voice_mgr.connect_voice(vc_target, text_channel=self.text_channel)
+            embed = discord.Embed(
+                title="🔊 已成功加入語音頻道！",
+                description=f"機器人已連線至 {vc_target.mention}，現在可以使用 `/play` 開始點歌！",
+                color=0x2ECC71
+            )
+            await interaction.followup.send(embed=embed)
+        except Exception as e:
+            await interaction.followup.send(f"❌ 連線至語音頻道失敗: {e}", ephemeral=True)
+
+class VoiceChannelSelectView(discord.ui.View):
+    def __init__(self, voice_mgr, text_channel):
+        super().__init__(timeout=60)
+        self.add_item(VoiceChannelSelectDropdown(voice_mgr, text_channel))
+
 class MusicCog(commands.Cog):
     """
     YouTube Music 音樂播放指令群
@@ -80,24 +118,75 @@ class MusicCog(commands.Cog):
     def voice_mgr(self):
         return self.bot.voice_manager
 
-    async def _ensure_voice(self, ctx: discord.ApplicationContext) -> Optional[discord.VoiceClient]:
-        """確保使用者在語音頻道，並連線機器人"""
-        if not ctx.author.voice or not ctx.author.voice.channel:
-            await ctx.respond("❌ 請先加入一個語音頻道！", ephemeral=True)
+    async def _ensure_voice(
+        self,
+        ctx: discord.ApplicationContext,
+        target_channel: Optional[discord.VoiceChannel] = None
+    ) -> Optional[discord.VoiceClient]:
+        """確保使用者在語音頻道，並連線機器人 (優先使用 target_channel)"""
+        voice_channel = target_channel or (ctx.author.voice.channel if ctx.author.voice else None)
+        if not voice_channel:
+            await ctx.respond("❌ 請先加入一個語音頻道，或在指令中指定要加入的語音頻道！", ephemeral=True)
             return None
 
-        voice_channel = ctx.author.voice.channel
         vc = await self.voice_mgr.connect_voice(voice_channel, text_channel=ctx.channel)
         return vc
+
+    @slash_command(name="join", description="指定讓機器人加入特定的語音頻道，或自動加入您所在的頻道")
+    async def join(
+        self,
+        ctx: discord.ApplicationContext,
+        channel: Option(discord.VoiceChannel, "選擇要加入的語音頻道 (若未填寫則自動加入您所在的頻道)", required=False) = None
+    ):
+        # 情況 1：直接在指令中指定了語音頻道
+        if channel:
+            await ctx.defer()
+            try:
+                await self.voice_mgr.connect_voice(channel, text_channel=ctx.channel)
+                embed = discord.Embed(
+                    title="🔊 已成功加入語音頻道！",
+                    description=f"機器人已連線至 {channel.mention}，現在可以使用 `/play` 開始點歌！",
+                    color=0x2ECC71
+                )
+                await ctx.respond(embed=embed)
+            except Exception as e:
+                await ctx.respond(f"❌ 連線至語音頻道失敗: {e}", ephemeral=True)
+            return
+
+        # 情況 2：使用者已在某個語音頻道中
+        if ctx.author.voice and ctx.author.voice.channel:
+            target = ctx.author.voice.channel
+            await ctx.defer()
+            try:
+                await self.voice_mgr.connect_voice(target, text_channel=ctx.channel)
+                embed = discord.Embed(
+                    title="🔊 已成功加入語音頻道！",
+                    description=f"機器人已加入您所在的頻道 {target.mention}！",
+                    color=0x2ECC71
+                )
+                await ctx.respond(embed=embed)
+            except Exception as e:
+                await ctx.respond(f"❌ 連線至語音頻道失敗: {e}", ephemeral=True)
+            return
+
+        # 情況 3：未指定頻道且使用者也不在任何語音頻道中 -> 彈出語音頻道下拉選單
+        embed = discord.Embed(
+            title="🔊 選擇要讓機器人加入的語音頻道",
+            description="您目前不在任何語音頻道中，請從下方選單挑選機器人要進入的語音頻道：",
+            color=0x3498DB
+        )
+        view = VoiceChannelSelectView(self.voice_mgr, ctx.channel)
+        await ctx.respond(embed=embed, view=view, ephemeral=True)
 
     @slash_command(name="play", description="在語音頻道播放 YouTube Music 歌曲或網址")
     async def play(
         self,
         ctx: discord.ApplicationContext,
-        query: Option(str, "歌曲名稱、關鍵字或 YouTube / YouTube Music 網址", required=True)
+        query: Option(str, "歌曲名稱、關鍵字或 YouTube / YouTube Music 網址", required=True),
+        channel: Option(discord.VoiceChannel, "指定要連線播放的語音頻道 (若未填寫則自動加入您所在的頻道)", required=False) = None
     ):
         await ctx.defer()
-        vc = await self._ensure_voice(ctx)
+        vc = await self._ensure_voice(ctx, target_channel=channel)
         if not vc:
             return
 
@@ -307,6 +396,15 @@ class MusicCog(commands.Cog):
     async def stop(self, ctx: discord.ApplicationContext):
         await self.voice_mgr.disconnect_voice(ctx.guild.id)
         await ctx.respond("⏹️ 已停止播放並退出語音頻道。")
+
+    @slash_command(name="leave", description="讓機器人退出目前的語音頻道")
+    async def leave(self, ctx: discord.ApplicationContext):
+        guild = ctx.guild
+        vc = guild.voice_client if guild else None
+        if not vc or not vc.is_connected():
+            return await ctx.respond("❌ 機器人目前並未在任何語音頻道中。", ephemeral=True)
+        await self.voice_mgr.disconnect_voice(guild.id)
+        await ctx.respond("👋 機器人已離開語音頻道。")
 
     @slash_command(name="queue", description="查看當前的播放佇列")
     async def queue(self, ctx: discord.ApplicationContext):
