@@ -17,8 +17,9 @@ class RollingBufferSink(Sink):
     """
     __sink_listeners__ = ()
 
-    def __init__(self, buffer_seconds: float = 65.0, auto_record: bool = False, *, filters=None):
+    def __init__(self, buffer_seconds: float = 65.0, auto_record: bool = False, vc=None, *, filters=None):
         super().__init__(filters=filters)
+        self.vc = vc
         self.encoding = "pcm"
         self.buffer_seconds = buffer_seconds
         
@@ -30,6 +31,13 @@ class RollingBufferSink(Sink):
         self.session_chunks: List[Tuple[int, float, bytes]] = []
         self.session_start_time = time.time()
         self.session_end_time: float | None = None
+
+    def init(self, vc):
+        self.vc = vc
+        try:
+            super().init(vc)
+        except Exception:
+            pass
 
     def is_opus(self) -> bool:
         return False

@@ -56,12 +56,17 @@ class VoiceManager:
         if not vc.is_recording():
             sink = RollingBufferSink(
                 buffer_seconds=float(REPLAY_BUFFER_SECONDS + 10),
-                auto_record=self.auto_record
+                auto_record=self.auto_record,
+                vc=vc
             )
+            sink.init(vc)
             self.sinks[guild.id] = sink
 
-            def record_finished_callback(*args, **kwargs):
-                logger.info(f"伺服器 {guild.id} 的語音錄音已結束。")
+            def record_finished_callback(error=None, *args, **kwargs):
+                if error:
+                    logger.error(f"伺服器 {guild.id} 的語音錄音發生錯誤終止: {error}", exc_info=isinstance(error, Exception))
+                else:
+                    logger.info(f"伺服器 {guild.id} 的語音錄音已正常結束。")
 
             try:
                 vc.start_recording(sink, record_finished_callback)
