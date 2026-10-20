@@ -63,10 +63,13 @@ class RollingBufferSink(Sink):
         elif hasattr(data, "source") and data.source and hasattr(data.source, "id"):
             user_id = data.source.id
         elif hasattr(data, "packet") and hasattr(data.packet, "ssrc"):
-            if self.vc and hasattr(self.vc, "_ssrc_to_id"):
-                user_id = self.vc._ssrc_to_id.get(data.packet.ssrc, data.packet.ssrc)
-            else:
-                user_id = data.packet.ssrc
+            ssrc = data.packet.ssrc
+            if self.vc and hasattr(self.vc, "_connection") and hasattr(self.vc._connection, "ssrc_user_map"):
+                user_id = self.vc._connection.ssrc_user_map.get(ssrc, 0)
+            if not user_id and self.vc and hasattr(self.vc, "_ssrc_to_id"):
+                user_id = self.vc._ssrc_to_id.get(ssrc, 0)
+            if not user_id:
+                user_id = ssrc
 
         if not user_id:
             user_id = 1  # 預設非零標識，避免因未解析成員而丟失語音封包

@@ -62,8 +62,21 @@ class RecordCog(commands.Cog):
                     return await interaction_or_ctx.followup.send(embed=embed)
                 return await interaction_or_ctx.respond(embed=embed)
 
-            # 格式化參與說話的成員標註
-            speakers_str = ", ".join([f"<@{uid}>" if uid > 1000000000000 else "語音成員" for uid in active_uids])
+            # 格式化參與說話的成員名稱（不使用 @ 標記成員，避免擾民）
+            guild = interaction_or_ctx.guild
+            speakers = []
+            for uid in active_uids:
+                if uid > 1000000000000:
+                    member = guild.get_member(uid) if guild else None
+                    if not member:
+                        member = self.bot.get_user(uid)
+                    if member:
+                        speakers.append(f"**{member.display_name}**")
+                    else:
+                        speakers.append(f"成員({uid})")
+                else:
+                    speakers.append("語音成員")
+            speakers_str = ", ".join(speakers) if speakers else "語音成員"
 
             timestr = time.strftime("%Y%m%d_%H%M%S")
             filename = f"clip_{seconds}s_{timestr}.mp3"
@@ -76,10 +89,11 @@ class RecordCog(commands.Cog):
             )
             embed.set_footer(text="音訊已依真實對話時間軸精準混音為立體聲 MP3")
 
+            allowed_mentions = discord.AllowedMentions.none()
             if is_interaction:
-                await interaction_or_ctx.followup.send(embed=embed, file=file)
+                await interaction_or_ctx.followup.send(embed=embed, file=file, allowed_mentions=allowed_mentions)
             else:
-                await interaction_or_ctx.respond(embed=embed, file=file)
+                await interaction_or_ctx.respond(embed=embed, file=file, allowed_mentions=allowed_mentions)
 
         except Exception as e:
             logger.error(f"擷取前一分鐘對話失敗: {e}")
@@ -179,7 +193,20 @@ class RecordCog(commands.Cog):
             if chunks and now - chunks[-1][0] < 60.0:
                 active_in_60s.append(uid)
 
-        speakers_str = ", ".join([f"<@{uid}>" if uid > 1000000000000 else "語音成員" for uid in active_in_60s]) if active_in_60s else "最近無人說話"
+        guild = ctx.guild
+        speakers = []
+        for uid in active_in_60s:
+            if uid > 1000000000000:
+                member = guild.get_member(uid) if guild else None
+                if not member:
+                    member = self.bot.get_user(uid)
+                if member:
+                    speakers.append(f"**{member.display_name}**")
+                else:
+                    speakers.append(f"成員({uid})")
+            else:
+                speakers.append("語音成員")
+        speakers_str = ", ".join(speakers) if speakers else "最近無人說話"
 
         embed = discord.Embed(
             title="📊 語音錄製與緩衝區狀態",
@@ -188,7 +215,7 @@ class RecordCog(commands.Cog):
         embed.add_field(name="前一分鐘緩衝狀態", value="🟢 正常監聽中（隨時可用 `/clip` 擷取）", inline=False)
         embed.add_field(name="全程自動錄音存檔", value="🔴 進行中" if sink.is_session_recording else "⚪ 未開啟", inline=True)
         embed.add_field(name="近 60 秒發言成員", value=speakers_str, inline=False)
-        await ctx.respond(embed=embed)
+        await ctx.respond(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
 def setup(bot: discord.Bot):
     bot.add_cog(RecordCog(bot))
