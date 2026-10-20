@@ -61,6 +61,13 @@ async def on_ready():
     logger.info("=" * 60)
     sys.stdout.flush()
 
+    # 清理舊的殘留語音連線
+    for vc in bot.voice_clients:
+        try:
+            await vc.disconnect(force=True)
+        except Exception:
+            pass
+
     # 設定機器人狀態
     activity = discord.Activity(
         type=discord.ActivityType.listening,
@@ -76,15 +83,18 @@ async def on_voice_state_update(member, before, after):
     if member.id == bot.user.id:
         return
 
-    # 檢查是否有機器人所在的頻道成員異動
-    for guild in bot.guilds:
-        vc = guild.voice_client
-        if vc and vc.channel:
-            # 取得該頻道非機器人的成員數
-            non_bots = [m for m in vc.channel.members if not m.bot]
-            if len(non_bots) == 0:
-                logger.info(f"頻道 {vc.channel.name} 已無其他成員，機器人自動中斷語音。")
-                await bot.voice_manager.disconnect_voice(guild.id)
+    # 只在有人離開頻道或切換頻道時檢查
+    if before.channel is None or before.channel == after.channel:
+        return
+
+    guild = before.channel.guild
+    vc = guild.voice_client
+    # 確保連線已建立且機器人位於成員剛剛離開的頻道
+    if vc and vc.is_connected() and vc.channel and vc.channel.id == before.channel.id:
+        non_bots = [m for m in vc.channel.members if not m.bot]
+        if len(non_bots) == 0:
+            logger.info(f"頻道 {vc.channel.name} 已無其他成員，機器人自動中斷語音。")
+            await bot.voice_manager.disconnect_voice(guild.id)
 
 @bot.event
 async def on_application_command_error(ctx: discord.ApplicationContext, error: discord.DiscordException):

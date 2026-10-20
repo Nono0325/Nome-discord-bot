@@ -42,7 +42,7 @@ class VoiceManager:
             if vc.channel.id != voice_channel.id:
                 await vc.move_to(voice_channel)
         else:
-            vc = await voice_channel.connect()
+            vc = await voice_channel.connect(timeout=60.0, reconnect=True)
 
         # 設定音樂播放器的預設文字頻道
         player = self.get_player(guild.id)
