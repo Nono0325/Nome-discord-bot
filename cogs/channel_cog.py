@@ -38,20 +38,16 @@ class ChannelSelectDropdown(discord.ui.Select):
         try:
             target_ch = interaction.guild.get_channel(selected_channel.id)
             if isinstance(target_ch, discord.TextChannel):
-                notice_embed = discord.Embed(
-                    title="🎵 專屬音樂頻道已設定",
-                    description=(
-                        f"本頻道已被 {interaction.user.mention} 設定為 **Nome 音樂機器人** 的專屬控制頻道！\n\n"
-                        "💡 **功能說明**：\n"
-                        "• 所有成員點歌時的 **「正在播放卡片」** 與 **「按鈕控制面板」** 將固定發送於此。\n"
-                        "• 歌曲播放完畢或離開語音的系統通知也會在此發布，保持其他聊天頻道整潔。"
-                    ),
-                    color=0xFF0033
-                )
-                notice_embed.set_footer(text="若需更換或取消，管理員可使用 /set_channel 或 /clear_channel")
-                await target_ch.send(embed=notice_embed)
+                from cogs.panel_cog import build_dashboard_embed, DashboardView
+                p_embed = build_dashboard_embed(interaction.guild, interaction.client, category="overview")
+                p_view = DashboardView(interaction.client)
+                msg = await target_ch.send(embed=p_embed, view=p_view)
+                try:
+                    await msg.pin()
+                except Exception:
+                    pass
         except Exception as e:
-            logger.warning(f"無法在目標頻道發送歡迎通知: {e}")
+            logger.warning(f"無法在目標頻道發送控制面板: {e}")
 
         embed = discord.Embed(
             title="✅ 專屬音樂頻道設定成功！",
@@ -120,20 +116,16 @@ class ChannelCog(commands.Cog):
 
             # 在目標頻道發送歡迎通知
             try:
-                notice_embed = discord.Embed(
-                    title="🎵 專屬音樂頻道已設定",
-                    description=(
-                        f"本頻道已被 {ctx.author.mention} 設定為 **Nome 音樂機器人** 的專屬控制頻道！\n\n"
-                        "💡 **功能說明**：\n"
-                        "• 所有成員點歌時的 **「正在播放卡片」** 與 **「按鈕控制面板」** 將固定發送於此。\n"
-                        "• 歌曲播放完畢或離開語音的系統通知也會在此發布，保持其他聊天頻道整潔。"
-                    ),
-                    color=0xFF0033
-                )
-                notice_embed.set_footer(text="若需更換或取消，管理員可使用 /set_channel 或 /clear_channel")
-                await channel.send(embed=notice_embed)
+                from cogs.panel_cog import build_dashboard_embed, DashboardView
+                p_embed = build_dashboard_embed(ctx.guild, self.bot, category="overview")
+                p_view = DashboardView(self.bot)
+                msg = await channel.send(embed=p_embed, view=p_view)
+                try:
+                    await msg.pin()
+                except Exception:
+                    pass
             except Exception as e:
-                logger.warning(f"無法在目標頻道發送歡迎通知: {e}")
+                logger.warning(f"無法在目標頻道發送控制面板: {e}")
 
             embed = discord.Embed(
                 title="✅ 專屬音樂頻道設定成功！",
