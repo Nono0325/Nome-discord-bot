@@ -412,6 +412,21 @@ class MusicControlView(discord.ui.View):
         else:
             await interaction.response.send_message("❌ 錄音模組未啟用！", ephemeral=True)
 
+    @discord.ui.button(label="收藏本曲", style=discord.ButtonStyle.secondary, emoji="⭐", row=1)
+    async def favorite_current_song(self, button: discord.ui.Button, interaction: discord.Interaction):
+        if not self.player.current:
+            return await interaction.response.send_message("❌ 目前沒有正在播放的歌曲！", ephemeral=True)
+        from core.favorites_manager import favorites_manager
+        ok, msg, count = favorites_manager.add_favorite(
+            interaction.user.id,
+            self.player.current,
+            username=interaction.user.display_name
+        )
+        await interaction.response.send_message(
+            f"{msg}\n📚 您目前共收藏了 **{count}** 首歌曲！隨時可在控制台點擊「⭐ 私房收藏」隨機或全部播放。",
+            ephemeral=True
+        )
+
     @discord.ui.button(label="停止播放", style=discord.ButtonStyle.danger, emoji="⏹️", row=1)
     async def stop_player(self, button: discord.ui.Button, interaction: discord.Interaction):
         self.player.stop()

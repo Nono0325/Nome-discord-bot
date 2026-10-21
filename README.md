@@ -107,9 +107,18 @@
 | `/stop` | 停止播放、清空佇列並讓機器人退出語音頻道 |
 | `/queue` | 查看目前的播放佇列清單 |
 | `/lyrics [歌曲] [mode]` | **新功能！** 即時顯示目前播放歌曲的動態同步歌詞 (卡拉OK即時滾動) 或查詢特定歌曲完整歌詞 |
-| `/nowplaying` | 顯示正在播放歌曲的精緻卡片與即時互動控制按鈕 (含動態歌詞按鈕) |
+| `/nowplaying` | 顯示正在播放歌曲的精緻卡片與即時互動控制按鈕 (含「⭐ 收藏本曲」按鈕) |
 | `/volume <0-100>` | 調整播放音量百分比 |
 | `/loop <模式>` | 切換循環模式：關閉 / 單曲循環 / 清單循環 |
+
+### ⭐ 個人私房收藏歌單 (Personal Favorites - 新亮點功能！)
+> 💡 打造專屬於您的音樂庫！在播放歌曲時隨時點擊卡片上的「⭐ 收藏本曲」即可一鍵存入，支援隨機混洗電台播放！
+
+| 指令 | 說明 |
+| :--- | :--- |
+| `/favorites` | **新功能！** 召喚個人私房收藏歌單面板（支援單曲挑選、一鍵全部播放、隨機混洗與個別刪除） |
+| `/favorite_add [歌曲]` | **新功能！** 將當前正在播放的歌曲，或指定的歌曲直接加入個人收藏庫 |
+| `/favorite_play [shuffle]` | **新功能！** 一鍵在語音頻道點播個人全部收藏歌曲（可自選是否隨機混洗） |
 
 ### 🎙️ 語音錄音與 1 分鐘對話回放指令群
 | 指令 | 說明 |
@@ -167,6 +176,7 @@ Discord-Boot/
 │   ├── oauth.json        # Google OAuth 憑證 (自動產生)
 │   └── browser.json      # 瀏覽器標頭憑證 (選用)
 ├── core/
+│   ├── favorites_manager.py # 個人私房收藏歌單持久化管理器
 │   ├── audio_mixer.py    # 時間軸多軌多成員對話混音引擎 (支援連續游標對齊與峰值標準化)
 │   ├── pycord_patch.py   # Pycord 語音接收與 DAVE / JitterBuffer 熱修復補丁
 │   ├── recorder.py       # 60秒循環緩衝區 (RollingBufferSink) 與會話錄音
@@ -176,6 +186,7 @@ Discord-Boot/
 │   ├── ytdl_source.py    # yt-dlp 串流解析與 FFmpeg 音訊來源
 │   ├── lyrics_service.py # LRCLIB 高精度動態時間戳與 YouTube Music 官方歌詞服務
 │   ├── lyrics_view.py    # 卡拉OK動態同步滾動視圖與長篇分頁視圖
+│   ├── favorites_view.py # 私房收藏歌單下拉選單、播放與移除互動視圖
 │   └── player.py         # 伺服器播放佇列、循環與即時按鈕面板
 ├── cogs/
 │   ├── panel_cog.py      # 全功能視覺化互動控制台與點歌/解答彈窗 (免打指令)

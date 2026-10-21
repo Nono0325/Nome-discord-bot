@@ -283,6 +283,20 @@ def build_dashboard_embed(guild: discord.Guild, bot: discord.Bot, category: str 
             color=0xE67E22
         )
 
+    elif category == "favorites":
+        embed = discord.Embed(
+            title="⭐ 個人私房收藏歌單專區",
+            description=(
+                "每位成員都擁有獨立的私房音樂庫，跨伺服器永久儲存！\n\n"
+                "✦ **功能亮點**：\n"
+                "• **一鍵收藏**：播歌時隨時點擊「⭐ 收藏本曲」存入私人歌單。\n"
+                "• **隨機混洗播放**：點擊「🔀 隨機播收藏」立即享受專屬私房電台。\n"
+                "• **單曲管理**：點擊「⭐ 私房收藏」可透過下拉選單點播或移除指定歌曲。\n\n"
+                "👇 請點擊下方 **「⭐ 私房收藏」** 或 **「🔀 隨機播收藏」** 即可開啟專屬面板！"
+            ),
+            color=0xF1C40F
+        )
+
     elif category == "settings":
         ch = guild_settings.get_music_channel(guild)
         ch_str = ch.mention if ch else "未綁定 (隨使用者所在文字頻道即時發送)"
@@ -310,6 +324,12 @@ class CategorySelect(Select):
                 value="overview",
                 description="查看目前語音連線、音樂播放與全系統概況",
                 default=True
+            ),
+            discord.SelectOption(
+                label="⭐ 個人私房收藏歌單",
+                value="favorites",
+                description="檢視個人收藏、一鍵全部播放或隨機混洗私房歌曲",
+                emoji="⭐"
             ),
             discord.SelectOption(
                 label="🎵 音樂與電台專區",
@@ -556,6 +576,104 @@ class DashboardView(View):
     async def btn_refresh(self, button: discord.ui.Button, interaction: discord.Interaction):
         embed = build_dashboard_embed(interaction.guild, interaction.client, category="overview")
         await interaction.response.edit_message(embed=embed)
+
+    # ----------------------------------------------------
+    # Row 4: 個人私房收藏與進階工具按鈕
+    # ----------------------------------------------------
+    @discord.ui.button(label="私房收藏", style=discord.ButtonStyle.primary, emoji="⭐", row=4)
+    async def btn_favorites(self, button: discord.ui.Button, interaction: discord.Interaction):
+        from core.favorites_manager import favorites_manager
+        from music.favorites_view import FavoritesView, build_favorites_embed
+        favs = favorites_manager.get_favorites(interaction.user.id)
+        embed = build_favorites_embed(interaction.user, favs)
+        view = FavoritesView(interaction.user, self.bot)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+    @discord.ui.button(label="隨機播收藏", style=discord.ButtonStyle.success, emoji="🔀", row=4)
+    async def btn_fav_shuffle(self, button: discord.ui.Button, interaction: discord.Interaction):
+        from core.favorites_manager import favorites_manager
+        favs = favorites_manager.get_favorites(interaction.user.id)
+        if not favs:
+            return await interaction.response.send_message(
+                "⚠️ 您的收藏歌單目前是空的！請在播放音樂時點擊「⭐ 收藏本曲」加入最愛歌曲。",
+                ephemeral=True
+            )
+
+        await interaction.response.defer(ephemeral=True)
+        player = self.bot.voice_manager.get_player(interaction.guild.id)
+        if not player.voice_client or not player.voice_client.is_connected():
+            if not interaction.user.voice or not interaction.user.voice.channel:
+                return await interaction.followup.send("❌ 請先加入一個語音頻道！", ephemeral=True)
+            await self.bot.voice_manager.connect_voice(interaction.user.voice.channel, text_channel=interaction.channel)
+
+        player.text_channel = interaction.channel
+        shuffled = list(favs)
+        import random
+        random.shuffle(shuffled)
+        for item in shuffled:
+            song_obj = favorites_manager.to_song(item, requester=f"{interaction.user.display_name} (私房隨機)")
+            await player.add_song(song_obj)
+
+        await interaction.followup.send(
+            f"🔀 已成功將您的 **{len(favs)}** 首收藏歌曲**隨機混洗**加入佇列！",
+            ephemeral=True
+        )
+
+    @discord.ui.button(label="每日能量", style=discord.ButtonStyle.secondary, emoji="✨", row=4)
+    async def btn_daily_book(self, button: discord.ui.Button, interaction: discord.Interaction):
+        from cogs.book_cog import BOOK_ANSWERS
+        import time, hashlib, random
+        today_str = time.strftime("%Y-%m-%d")
+        seed_bytes = f"{today_str}_{interaction.user.id}".encode("utf-8")
+        seed_val = int(hashlib.md5(seed_bytes).hexdigest()[:8], 16)
+        rng = random.Random(seed_val)
+        entry = rng.choice(BOOK_ANSWERS)
+        page_no = rng.randint(1, 384)
+
+        embed = discord.Embed(
+            title=f"🌅 今日專屬啟示・{today_str}",
+            description=(
+                f"✦ **守護對象**：{interaction.user.mention}\n\n"
+                f"```yaml\n「{entry['zh']}」\n  {entry['en']}\n```\n"
+                f"💫 **今日能量指針**：\n> {entry['desc']}\n\n"
+                "🕯️ *靜下心來，將這句話融入今日的生活步調中。*"
+            ),
+            color=0xE67E22
+        )
+        embed.set_footer(text=f"✦ 今日專屬書頁 第 {page_no} 頁 ✦ 每日凌晨更新 ✦")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @discord.ui.button(label="生涯檔案", style=discord.ButtonStyle.secondary, emoji="📜", row=4)
+    async def btn_life_stats(self, button: discord.ui.Button, interaction: discord.Interaction):
+        from cogs.life_cog import load_all_stats
+        data = load_all_stats()
+        uid_str = str(interaction.user.id)
+        u = data.get(uid_str)
+        if not u or u.get("total_lives", 0) == 0:
+            return await interaction.response.send_message(
+                "📜 您尚未開啟過任何一段《80億分之1》人生輪迴！請點擊「🎲 80億隨機投胎」開始第一次人生體驗。",
+                ephemeral=True
+            )
+
+        embed = discord.Embed(
+            title=f"📜 {interaction.user.display_name} 的輪迴生涯檔案庫",
+            description=f"✦ **累計轉世次數**：`{u['total_lives']}` 次\n✦ **人生最高壽命**：`{u['max_age']}` 歲\n✦ **最高幸福指數**：`{u['best_happiness']}` 分\n✦ **最高成就財富**：`{u['best_wealth']}` 分",
+            color=0x9B59B6
+        )
+        if u.get("countries_visited"):
+            sorted_c = sorted(u["countries_visited"].items(), key=lambda x: x[1], reverse=True)[:5]
+            c_text = "、".join([f"{c} ({cnt}次)" for c, cnt in sorted_c])
+            embed.add_field(name="🌍 最常降生國籍", value=c_text, inline=False)
+        if u.get("titles"):
+            embed.add_field(name="🏅 解鎖人生稱號圖鑑", value="\n".join([f"• {t}" for t in u["titles"][:6]]), inline=False)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @discord.ui.button(label="錄音開關", style=discord.ButtonStyle.secondary, emoji="🎙️", row=4)
+    async def btn_toggle_record(self, button: discord.ui.Button, interaction: discord.Interaction):
+        vm = self.bot.voice_manager
+        vm.auto_record = not vm.auto_record
+        status = "🔴 全程自動錄音已開啟 (進出語音自動存檔)" if vm.auto_record else "⚪ 全程自動錄音已關閉"
+        await interaction.response.send_message(status, ephemeral=True)
 
 
 # ==============================================================================

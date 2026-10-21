@@ -761,6 +761,82 @@ class MusicCog(commands.Cog):
             actual_msg = await msg.fetch() if hasattr(msg, "fetch") else msg
             view.message = actual_msg
 
+    @slash_command(name="favorites", description="⭐ 檢視並管理您的個人私房收藏歌單 (一鍵播放全部、隨機混洗、單曲點播)")
+    async def favorites(self, ctx: discord.ApplicationContext):
+        from core.favorites_manager import favorites_manager
+        from music.favorites_view import FavoritesView, build_favorites_embed
+        favs = favorites_manager.get_favorites(ctx.author.id)
+        embed = build_favorites_embed(ctx.author, favs)
+        view = FavoritesView(ctx.author, self.bot)
+        await ctx.respond(embed=embed, view=view, ephemeral=True)
+
+    @slash_command(name="favorite_add", description="⭐ 將目前正在播放的歌曲，或指定的歌曲加入個人私房收藏")
+    async def favorite_add(
+        self,
+        ctx: discord.ApplicationContext,
+        query: Option(str, "歌曲名稱、歌手或 YouTube 網址 (留空則自動收藏當前正在播放的歌曲)", required=False, default="") = ""
+    ):
+        await ctx.defer(ephemeral=True)
+        from core.favorites_manager import favorites_manager
+        target_song = None
+        if query.strip():
+            songs = await YTDLSource.create_song_list(query.strip(), requester=ctx.author.display_name)
+            if songs:
+                target_song = songs[0]
+            else:
+                return await ctx.respond(f"⚠️ 找不到關於 **{query}** 的歌曲。", ephemeral=True)
+        else:
+            player = self.voice_mgr.get_player(ctx.guild.id)
+            if player and player.current:
+                target_song = player.current
+            else:
+                return await ctx.respond("❌ 目前沒有正在播放的歌曲！請在指令後方輸入欲收藏的歌曲名稱或貼上網址。", ephemeral=True)
+
+        ok, msg, count = favorites_manager.add_favorite(ctx.author.id, target_song, username=ctx.author.display_name)
+        embed = discord.Embed(
+            title="⭐ 私房收藏歌單",
+            description=f"{msg}\n📚 您目前共收藏了 **{count}** 首歌曲！",
+            color=0xF1C40F if ok else 0xE67E22
+        )
+        if target_song.thumbnail:
+            embed.set_thumbnail(url=target_song.thumbnail)
+        await ctx.respond(embed=embed, ephemeral=True)
+
+    @slash_command(name="favorite_play", description="⭐ 一鍵在語音頻道播放您的私房收藏歌單")
+    async def favorite_play(
+        self,
+        ctx: discord.ApplicationContext,
+        shuffle: Option(bool, "是否隨機混洗順序播放", required=False, default=True) = True
+    ):
+        await ctx.defer()
+        from core.favorites_manager import favorites_manager
+        favs = favorites_manager.get_favorites(ctx.author.id)
+        if not favs:
+            return await ctx.respond("⚠️ 您的私房收藏歌單目前是空的！可使用 `/favorite_add` 或點擊播放卡片上的「⭐ 收藏本曲」加入歌曲。", ephemeral=True)
+
+        player = self.voice_mgr.get_player(ctx.guild.id)
+        if not player.voice_client or not player.voice_client.is_connected():
+            if not ctx.author.voice or not ctx.author.voice.channel:
+                return await ctx.respond("❌ 請先加入一個語音頻道！", ephemeral=True)
+            await self.voice_mgr.connect_voice(ctx.author.voice.channel, text_channel=ctx.channel)
+
+        player.text_channel = ctx.channel
+        items = list(favs)
+        if shuffle:
+            random.shuffle(items)
+
+        for item in items:
+            song_obj = favorites_manager.to_song(item, requester=f"{ctx.author.display_name} (私房{'隨機' if shuffle else '收藏'})")
+            await player.add_song(song_obj)
+
+        mode_str = "🎲 隨機混洗" if shuffle else "▶️ 順序"
+        embed = discord.Embed(
+            title="⭐ 已載入您的私房收藏歌單！",
+            description=f"已成功將 **{len(favs)}** 首收藏歌曲以 **{mode_str}** 模式加入播放佇列！",
+            color=0xF1C40F
+        )
+        await ctx.respond(embed=embed)
+
 def setup(bot: discord.Bot):
     bot.add_cog(MusicCog(bot))
 
