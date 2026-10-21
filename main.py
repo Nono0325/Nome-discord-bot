@@ -56,7 +56,8 @@ COGS = [
     "cogs.auth_cog",
     "cogs.channel_cog",
     "cogs.admin_cog",
-    "cogs.book_cog"
+    "cogs.book_cog",
+    "cogs.life_cog"
 ]
 
 for cog in COGS:
