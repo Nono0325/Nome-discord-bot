@@ -75,11 +75,14 @@ class GuildPlayer:
         """加入歌曲至佇列"""
         if to_front:
             self.queue_list.insert(0, song)
-            new_q = asyncio.Queue()
-            new_q.put_nowait(song)
+            # 保持相同 Queue 物件，清空並依 queue_list 重新填入，避免正在 await get() 的協程被懸掛遺棄
             while not self.queue.empty():
-                new_q.put_nowait(self.queue.get_nowait())
-            self.queue = new_q
+                try:
+                    self.queue.get_nowait()
+                except Exception:
+                    break
+            for s in self.queue_list:
+                self.queue.put_nowait(s)
         else:
             self.queue_list.append(song)
             await self.queue.put(song)
@@ -102,10 +105,15 @@ class GuildPlayer:
             return len(self.queue_list)
 
         random.shuffle(self.queue_list)
-        new_q = asyncio.Queue()
+        # 保持相同 Queue 物件，清空並依打亂後的 queue_list 重新填入
+        while not self.queue.empty():
+            try:
+                self.queue.get_nowait()
+            except Exception:
+                break
         for s in self.queue_list:
-            new_q.put_nowait(s)
-        self.queue = new_q
+            self.queue.put_nowait(s)
+
         self.trigger_prefetch()
         return len(self.queue_list)
 

@@ -1,5 +1,6 @@
 import random
 import time
+import hashlib
 import logging
 import discord
 from discord.ext import commands
@@ -176,9 +177,10 @@ class BookCog(commands.Cog):
 
     @slash_command(name="book_daily", description="✨ 翻閱《解答之書》今日啟示，獲得專屬於您的每日能量指引")
     async def book_daily(self, ctx: discord.ApplicationContext):
-        # 依日期 + 使用者 ID 生成確定性種子，確保每人每天抽到的今日之書固定
+        # 依日期 + 使用者 ID 生成確定性種子，確保每人每天抽到的今日之書固定（跨進程/重啟皆一致）
         today_str = time.strftime("%Y-%m-%d")
-        seed_val = hash(f"{today_str}_{ctx.author.id}")
+        seed_bytes = f"{today_str}_{ctx.author.id}".encode("utf-8")
+        seed_val = int(hashlib.md5(seed_bytes).hexdigest()[:8], 16)
         rng = random.Random(seed_val)
         entry = rng.choice(BOOK_ANSWERS)
         page_no = rng.randint(1, 384)

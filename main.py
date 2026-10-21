@@ -210,10 +210,16 @@ async def on_voice_state_update(member, before, after):
             if remaining_count == 0:
                 logger.info(f"頻道 {vc.channel.name} 已無其他成員，機器人自動退出語音。")
                 await bot.voice_manager.disconnect_voice(guild.id)
-            # 規則 2：若是自動加入的狀態，且人數降至門檻以下且未在播歌時，自動退出
+            # 規則 2：若是自動加入的狀態，且人數降至門檻以下且未在播歌/暫停中時，自動退出
             elif not is_manual and remaining_count < AUTO_JOIN_MIN_MEMBERS:
-                if not vc.is_playing():
-                    logger.info(f"頻道 {vc.channel.name} 成員少於 {AUTO_JOIN_MIN_MEMBERS} 人且未在播歌，機器人自動退出。")
+                player = bot.voice_manager.players.get(guild.id)
+                has_active_music = (
+                    vc.is_playing()
+                    or vc.is_paused()
+                    or (player and (player.current is not None or len(player.queue_list) > 0))
+                )
+                if not has_active_music:
+                    logger.info(f"頻道 {vc.channel.name} 成員少於 {AUTO_JOIN_MIN_MEMBERS} 人且無音樂播放，機器人自動退出。")
                     await bot.voice_manager.disconnect_voice(guild.id)
 
 @bot.event

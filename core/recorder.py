@@ -112,12 +112,23 @@ class RollingBufferSink(Sink):
 
     def _get_snapshot(self) -> Dict[int, List[Tuple[float, bytes]]]:
         """
-        取得緩衝區快照，排除機器人自身並盡可能將 SSRC 臨時標識對應至真實成員 ID
+        取得緩衝區快照，排除機器人自身並盡可能將 SSRC 臨時標識對應至真實成員 ID。
+        自動回收逾期之使用者緩衝區，杜絕記憶體無限制膨脹。
         """
         snapshot: Dict[int, List[Tuple[float, bytes]]] = {}
         bot_id = self.vc.user.id if (self.vc and hasattr(self.vc, "user") and self.vc.user) else None
+        now = time.time()
+        cutoff = now - self.buffer_seconds
 
-        for raw_id, chunks in self.rolling_buffers.items():
+        stale_ids = []
+        for raw_id, chunks in list(self.rolling_buffers.items()):
+            # 清理過期訊框
+            while chunks and chunks[0][0] < cutoff:
+                chunks.popleft()
+            if not chunks:
+                stale_ids.append(raw_id)
+                continue
+
             if bot_id and raw_id == bot_id:
                 continue
 
@@ -137,6 +148,9 @@ class RollingBufferSink(Sink):
             if target_id not in snapshot:
                 snapshot[target_id] = []
             snapshot[target_id].extend(chunks)
+
+        for sid in stale_ids:
+            self.rolling_buffers.pop(sid, None)
 
         return snapshot
 

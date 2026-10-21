@@ -1,3 +1,4 @@
+import time
 import asyncio
 import logging
 from typing import Optional, List, Tuple
@@ -89,6 +90,7 @@ class LiveLyricsView(discord.ui.View):
         self.message: Optional[discord.Message] = None
         self.update_task: Optional[asyncio.Task] = None
         self.last_rendered_idx = -1
+        self.last_edit_time: float = 0.0
         self.is_active = True
 
     def start_sync(self, message: discord.Message):
@@ -130,14 +132,18 @@ class LiveLyricsView(discord.ui.View):
                     await asyncio.sleep(2.0)
                     continue
 
+                now = time.time()
                 embed, cur_idx = build_synced_embed(self.player, self.song, self.lyrics_data)
-                if self.message:
+                
+                # 智慧節流策略：歌詞跳行時即時更新；同一行時每 4.5 秒平滑更新進度條，杜絕觸發 Discord 429 限速
+                should_edit = (cur_idx != self.last_rendered_idx) or (now - self.last_edit_time >= 4.5)
+                if should_edit and self.message:
                     await self.message.edit(embed=embed, view=self)
                     self.last_rendered_idx = cur_idx
+                    self.last_edit_time = now
                     consecutive_errors = 0
 
-                # 依據下一句歌詞的時間點自我調整等待時間 (介於 2.0 ~ 3.5 秒之間，嚴格遵守 Discord 速率限制)
-                await asyncio.sleep(2.5)
+                await asyncio.sleep(2.0)
 
             except asyncio.CancelledError:
                 break
