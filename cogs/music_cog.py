@@ -678,6 +678,89 @@ class MusicCog(commands.Cog):
         except Exception as e:
             await ctx.respond(f"❌ 隨機探索失敗: {e}")
 
+    @slash_command(name="lyrics", description="即時顯示目前播放歌曲的動態同步歌詞 (卡拉OK滾動) 或查詢特定歌曲歌詞")
+    async def lyrics(
+        self,
+        ctx: discord.ApplicationContext,
+        song: Option(str, "欲查詢的歌曲名稱 (留空則自動顯示當前播放中的歌曲)", required=False, default=None),
+        mode: Option(str, "顯示模式", choices=["動態同步 (Live Synced)", "完整歌詞 (Full Text)"], required=False, default="動態同步 (Live Synced)"),
+        secret: Option(bool, "是否僅自己可見 (悄悄話模式)", required=False, default=False)
+    ):
+        await ctx.defer(ephemeral=secret)
+        player = self.voice_mgr.get_player(ctx.guild.id)
+        from music.lyrics_service import lyrics_service
+        from music.lyrics_view import LiveLyricsView, FullLyricsView, build_synced_embed
+
+        target_song = None
+        target_title = ""
+        target_artist = ""
+        target_id = ""
+        target_thumb = ""
+
+        if song:
+            target_title = song
+            # 若有指定歌名，先透過 YouTube Music 搜尋一次以獲取更精確的藝人與 ID
+            try:
+                import asyncio
+                search_res = await asyncio.to_thread(ytm_client.search_songs, song, 1)
+                if search_res:
+                    first = search_res[0]
+                    target_title = first["title"]
+                    target_artist = first["artist"]
+                    target_id = first["id"]
+                    target_thumb = first.get("thumbnail", "")
+            except Exception:
+                pass
+        else:
+            if not player or not player.current:
+                return await ctx.respond("❌ 目前語音頻道沒有正在播放的歌曲！請先點歌或輸入欲查詢的歌曲名稱。", ephemeral=True)
+            target_song = player.current
+            target_title = target_song.title
+            target_artist = target_song.artist
+            target_id = target_song.id
+            target_thumb = target_song.thumbnail
+
+        lyrics_data = await lyrics_service.get_lyrics(
+            title=target_title,
+            artist=target_artist,
+            video_id=target_id,
+            thumbnail=target_thumb
+        )
+
+        if not lyrics_data:
+            return await ctx.respond(f"⚠️ 抱歉，未能為歌曲 **{target_title}** 找到歌詞資料。", ephemeral=True)
+
+        # 若使用者指定動態同步，且該歌曲正在播放中且具備同步數據
+        is_live_possible = (
+            target_song is not None
+            and player.current == target_song
+            and lyrics_data.synced
+            and bool(lyrics_data.lines)
+            and mode.startswith("動態同步")
+        )
+
+        if is_live_possible:
+            view = LiveLyricsView(
+                player=player,
+                song=target_song,
+                lyrics_data=lyrics_data,
+                requester_id=ctx.author.id
+            )
+            embed, _ = build_synced_embed(player, target_song, lyrics_data)
+            msg = await ctx.respond(embed=embed, view=view)
+            actual_msg = await msg.fetch() if hasattr(msg, "fetch") else msg
+            view.start_sync(actual_msg)
+        else:
+            view = FullLyricsView(
+                lyrics_data=lyrics_data,
+                player=player if (target_song and player.current == target_song) else None,
+                song=target_song if (target_song and player.current == target_song) else None,
+                requester_id=ctx.author.id
+            )
+            msg = await ctx.respond(embed=view.get_embed(), view=view)
+            actual_msg = await msg.fetch() if hasattr(msg, "fetch") else msg
+            view.message = actual_msg
+
 def setup(bot: discord.Bot):
     bot.add_cog(MusicCog(bot))
 

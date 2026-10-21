@@ -98,7 +98,8 @@
 | `/skip` | 跳至下一首歌曲 |
 | `/stop` | 停止播放、清空佇列並讓機器人退出語音頻道 |
 | `/queue` | 查看目前的播放佇列清單 |
-| `/nowplaying` | 顯示正在播放歌曲的精緻卡片與即時互動控制按鈕 |
+| `/lyrics [歌曲] [mode]` | **新功能！** 即時顯示目前播放歌曲的動態同步歌詞 (卡拉OK即時滾動) 或查詢特定歌曲完整歌詞 |
+| `/nowplaying` | 顯示正在播放歌曲的精緻卡片與即時互動控制按鈕 (含動態歌詞按鈕) |
 | `/volume <0-100>` | 調整播放音量百分比 |
 | `/loop <模式>` | 切換循環模式：關閉 / 單曲循環 / 清單循環 |
 
@@ -159,6 +160,8 @@ Discord-Boot/
 ├── music/
 │   ├── ytm_client.py     # YouTube Music API 封裝 (支援 OAuth / 訪客模式)
 │   ├── ytdl_source.py    # yt-dlp 串流解析與 FFmpeg 音訊來源
+│   ├── lyrics_service.py # LRCLIB 高精度動態時間戳與 YouTube Music 官方歌詞服務
+│   ├── lyrics_view.py    # 卡拉OK動態同步滾動視圖與長篇分頁視圖
 │   └── player.py         # 伺服器播放佇列、循環與即時按鈕面板
 ├── cogs/
 │   ├── music_cog.py      # 音樂播放、隨機、曲風與佇列 Slash 指令

@@ -1,3 +1,4 @@
+import time
 import random
 import asyncio
 import logging
@@ -25,6 +26,11 @@ class GuildPlayer:
         self.current: Optional[Song] = None
         self.current_source: Optional[YTDLSource] = None
         
+        # 播放進度與暫停時間追蹤 (供動態同步歌詞精準對齊使用)
+        self.play_start_time: Optional[float] = None
+        self.pause_start_time: Optional[float] = None
+        self.total_paused_duration: float = 0.0
+
         self.next_event = asyncio.Event()
         self.volume: float = 0.5
         self.loop_mode: str = "off"  # "off", "song", "queue"
@@ -34,6 +40,15 @@ class GuildPlayer:
         self.player_task: Optional[asyncio.Task] = None
         self.prefetch_task: Optional[asyncio.Task] = None
         self.is_stopped: bool = False
+
+    @property
+    def elapsed_seconds(self) -> float:
+        """取得目前曲目已播放的秒數 (扣除暫停時間)"""
+        if not self.play_start_time or not self.current:
+            return 0.0
+        if self.pause_start_time:
+            return max(0.0, self.pause_start_time - self.play_start_time - self.total_paused_duration)
+        return max(0.0, time.time() - self.play_start_time - self.total_paused_duration)
 
     @property
     def target_text_channel(self) -> Optional[discord.TextChannel]:
@@ -179,6 +194,10 @@ class GuildPlayer:
                         logger.error(f"播放歌曲 {song.title} 時發生錯誤: {error}")
                     self.bot.loop.call_soon_threadsafe(self.next_event.set)
 
+                self.play_start_time = time.time()
+                self.pause_start_time = None
+                self.total_paused_duration = 0.0
+
                 vc.play(source, after=after_playing)
 
                 # 發送正在播放 Embed
@@ -202,6 +221,9 @@ class GuildPlayer:
             elif self.current:
                 self.history.append(self.current)
 
+            self.play_start_time = None
+            self.pause_start_time = None
+            self.total_paused_duration = 0.0
             self.current = None
             self.current_source = None
 
@@ -236,11 +258,16 @@ class GuildPlayer:
     def pause(self):
         vc = self.voice_client
         if vc and vc.is_playing():
+            if not self.pause_start_time:
+                self.pause_start_time = time.time()
             vc.pause()
 
     def resume(self):
         vc = self.voice_client
         if vc and vc.is_paused():
+            if self.pause_start_time:
+                self.total_paused_duration += time.time() - self.pause_start_time
+                self.pause_start_time = None
             vc.resume()
 
     def skip(self):
@@ -250,6 +277,9 @@ class GuildPlayer:
 
     def stop(self):
         self.is_stopped = True
+        self.play_start_time = None
+        self.pause_start_time = None
+        self.total_paused_duration = 0.0
         self.queue_list.clear()
         while not self.queue.empty():
             try:
@@ -269,7 +299,7 @@ class GuildPlayer:
 class MusicControlView(discord.ui.View):
     """
     即時控制按鈕視圖：
-    包含暫停/播放、下一首、隨機混洗、無盡電台開關、停止播放與 1 分鐘語音剪輯
+    包含暫停/播放、下一首、隨機混洗、同步歌詞、無盡電台開關、停止播放與 1 分鐘語音剪輯
     """
 
     def __init__(self, player: GuildPlayer):
@@ -315,6 +345,49 @@ class MusicControlView(discord.ui.View):
             return await interaction.response.send_message("⚠️ 佇列歌曲少於 2 首，無法隨機排列。", ephemeral=True)
         await interaction.response.send_message(f"🔀 已成功打亂 **{count}** 首歌曲順序！", ephemeral=True)
 
+    @discord.ui.button(label="同步歌詞", style=discord.ButtonStyle.success, emoji="🎙️", row=0)
+    async def show_lyrics(self, button: discord.ui.Button, interaction: discord.Interaction):
+        if not self.player.current:
+            return await interaction.response.send_message("❌ 目前沒有正在播放的歌曲！", ephemeral=True)
+
+        await interaction.response.defer()
+        from music.lyrics_service import lyrics_service
+        from music.lyrics_view import LiveLyricsView, FullLyricsView, build_synced_embed
+
+        song = self.player.current
+        lyrics_data = await lyrics_service.get_lyrics(
+            title=song.title,
+            artist=song.artist,
+            video_id=song.id,
+            thumbnail=song.thumbnail
+        )
+
+        if not lyrics_data:
+            return await interaction.followup.send(
+                f"⚠️ 找不到歌曲 **{song.title}** 的歌詞資料。",
+                ephemeral=True
+            )
+
+        if lyrics_data.synced and lyrics_data.lines:
+            view = LiveLyricsView(
+                player=self.player,
+                song=song,
+                lyrics_data=lyrics_data,
+                requester_id=interaction.user.id
+            )
+            embed, _ = build_synced_embed(self.player, song, lyrics_data)
+            msg = await interaction.followup.send(embed=embed, view=view)
+            view.start_sync(msg)
+        else:
+            view = FullLyricsView(
+                lyrics_data=lyrics_data,
+                player=self.player,
+                song=song,
+                requester_id=interaction.user.id
+            )
+            msg = await interaction.followup.send(embed=view.get_embed(), view=view)
+            view.message = msg
+
     @discord.ui.button(label="無盡電台: 關", style=discord.ButtonStyle.secondary, emoji="🔁", custom_id="toggle_autoplay", row=1)
     async def toggle_autoplay(self, button: discord.ui.Button, interaction: discord.Interaction):
         self.player.autoplay = not self.player.autoplay
@@ -323,7 +396,7 @@ class MusicControlView(discord.ui.View):
         await interaction.response.edit_message(view=self)
         await interaction.followup.send(status_str, ephemeral=True)
 
-    @discord.ui.button(label="前 1 分鐘對話", style=discord.ButtonStyle.success, emoji="🎬", row=1)
+    @discord.ui.button(label="前 1 分鐘對話", style=discord.ButtonStyle.secondary, emoji="🎬", row=1)
     async def clip_replay(self, button: discord.ui.Button, interaction: discord.Interaction):
         rec_cog = interaction.client.get_cog("RecordCog")
         if rec_cog:
