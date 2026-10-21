@@ -89,12 +89,17 @@ class RollingBufferSink(Sink):
         if not pcm_bytes:
             return
 
+        # 取得 RTP 資訊 (sequence, timestamp) 以供音訊混合器進行精準訊框連續性對齊與去抖動
+        packet = getattr(data, "packet", None)
+        rtp_seq = getattr(packet, "sequence", None) if packet else None
+        rtp_ts = getattr(packet, "timestamp", None) if packet else None
+
         # 1. 存入使用者滾動緩衝區
         if user_id not in self.rolling_buffers:
             self.rolling_buffers[user_id] = deque()
 
         u_buf = self.rolling_buffers[user_id]
-        u_buf.append((now, pcm_bytes))
+        u_buf.append((now, pcm_bytes, rtp_seq, rtp_ts))
 
         # 清除超過緩衝上限（例如 65 秒）的舊封包
         cutoff = now - self.buffer_seconds
@@ -103,7 +108,7 @@ class RollingBufferSink(Sink):
 
         # 2. 如果正在進行完整會話錄音，同步保存
         if self.is_session_recording:
-            self.session_chunks.append((user_id, now, pcm_bytes))
+            self.session_chunks.append((user_id, now, pcm_bytes, rtp_seq, rtp_ts))
 
     def _get_snapshot(self) -> Dict[int, List[Tuple[float, bytes]]]:
         """

@@ -23,6 +23,34 @@ logger = logging.getLogger(__name__)
 def apply_pycord_patches():
     """套用 Pycord 語音接收補丁"""
     try:
+        # 0. 補丁 JitterBuffer：擴大緩衝區至 60 訊框 (1.2秒)，避免 Windows 線程調度抖動時丟棄語音封包
+        from discord.voice.utils.buffer import JitterBuffer
+        _orig_jb_init = JitterBuffer.__init__
+
+        def _patched_jb_init(self, max_size: int = 60, *, pref_size: int = 1, prefill: int = 1):
+            _orig_jb_init(self, max_size=max(max_size, 60), pref_size=pref_size, prefill=prefill)
+
+        JitterBuffer.__init__ = _patched_jb_init
+
+        # 0.1 補丁 PacketDecoder._get_next_packet：發生序號間隙時取最舊封包，杜絕 flush() 丟棄後續所有封包問題
+        def _patched_get_next_packet(self, timeout: float):
+            packet = self._buffer.pop(timeout=timeout)
+            if packet is None:
+                if self._buffer and len(self._buffer) > 0:
+                    try:
+                        packet = self._buffer._pop()
+                        self._buffer._last_tx_seq = packet.sequence
+                        self._buffer._update_has_item()
+                    except Exception:
+                        packet = None
+                else:
+                    return None
+            elif not packet:
+                packet = self._make_fakepacket()
+            return packet
+
+        PacketDecoder._get_next_packet = _patched_get_next_packet
+
         # 1. 補丁 PacketRouter._do_run：防止單一損毀封包中斷錄音線程
         def _patched_do_run(self):
             while not self._end_thread.is_set():
