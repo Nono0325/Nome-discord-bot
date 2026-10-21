@@ -152,7 +152,8 @@ Discord-Boot/
 │   ├── oauth.json        # Google OAuth 憑證 (自動產生)
 │   └── browser.json      # 瀏覽器標頭憑證 (選用)
 ├── core/
-│   ├── audio_mixer.py    # 時間軸多軌多成員對話混音引擎
+│   ├── audio_mixer.py    # 時間軸多軌多成員對話混音引擎 (支援連續游標對齊與峰值標準化)
+│   ├── pycord_patch.py   # Pycord 語音接收與 DAVE / JitterBuffer 熱修復補丁
 │   ├── recorder.py       # 60秒循環緩衝區 (RollingBufferSink) 與會話錄音
 │   └── voice_manager.py  # 語音連線、播放器與錄音器中央管理器
 ├── music/
@@ -160,8 +161,11 @@ Discord-Boot/
 │   ├── ytdl_source.py    # yt-dlp 串流解析與 FFmpeg 音訊來源
 │   └── player.py         # 伺服器播放佇列、循環與即時按鈕面板
 ├── cogs/
-│   ├── music_cog.py      # 音樂相關 Slash 指令
-│   ├── record_cog.py     # 剪輯與錄音 Slash 指令
-│   └── auth_cog.py       # Google 登入狀態 Slash 指令
+│   ├── music_cog.py      # 音樂播放、隨機、曲風與佇列 Slash 指令
+│   ├── record_cog.py     # 語音剪輯 (/clip) 與全程錄音 Slash 指令
+│   ├── book_cog.py       # 神秘《解答之書》心靈指引與每日能量 Slash 指令
+│   ├── channel_cog.py    # 專屬音樂文字頻道綁定 Slash 指令
+│   ├── admin_cog.py      # 不斷線更新 (/reload, /git_pull) 與多工系統監控
+│   └── auth_cog.py       # Google 帳號與 YouTube Music 授權狀態 Slash 指令
 └── recordings/           # 自動儲存的完整錄音 MP3 目錄
 ```
