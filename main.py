@@ -57,7 +57,6 @@ COGS = [
     "cogs.channel_cog",
     "cogs.admin_cog",
     "cogs.book_cog",
-    "cogs.life_cog",
     "cogs.panel_cog"
 ]
 

@@ -226,10 +226,10 @@ def build_dashboard_embed(guild: discord.Guild, bot: discord.Bot, category: str 
             name="💡 快捷操作指南",
             value=(
                 "• **🔍 點歌**: 點擊彈出小視窗輸入歌名/網址，自動連線播放\n"
+                "• **⭐ 私房收藏**: 瀏覽個人專屬音樂庫、一鍵全部或隨機點播\n"
                 "• **🎬 前1分對話**: 一鍵混音導出過去 60 秒立體聲通話 MP3\n"
                 "• **🎙️ 動態歌詞**: 開啟即時卡拉OK滾動歌詞面板\n"
-                "• **📖 問解答之書**: 默念心中疑惑，揭示命運解答\n"
-                "• **🎲 80億投胎**: 隨機投胎至世界 172 國，開啟模擬人生"
+                "• **📖 問解答之書**: 默念心中疑惑，揭示命運解答"
             ),
             inline=False
         )
@@ -270,17 +270,6 @@ def build_dashboard_embed(guild: discord.Guild, bot: discord.Bot, category: str 
                 "3. 按下送出，解答之書將為你翻開命運的扉頁！"
             ),
             color=0xD4AF37
-        )
-
-    elif category == "life":
-        embed = discord.Embed(
-            title="🎲 《80億分之1》人生模擬遊戲",
-            description=(
-                "全地球約有 80 億人口，你無法選擇自己的出生國家、家庭與性別。\n"
-                "這款遊戲依據**聯合國（UN）與世界銀行真實統計數據**，將你隨機投胎至全球 172 個國家之一！\n\n"
-                "經歷童年、求學、職場打拼、成家到晚年終局，回望屬於你的 80 億分之 1 人生！"
-            ),
-            color=0xE67E22
         )
 
     elif category == "favorites":
@@ -348,12 +337,6 @@ class CategorySelect(Select):
                 value="book",
                 description="為心中的困惑揭開命運啟示與每日指引",
                 emoji="📖"
-            ),
-            discord.SelectOption(
-                label="🎲 《80億分之1》人生模擬",
-                value="life",
-                description="隨機投胎全世界172國，體驗真實數據模擬人生",
-                emoji="🎲"
             ),
             discord.SelectOption(
                 label="⚙️ 頻道與系統管理",
@@ -444,12 +427,14 @@ class DashboardView(View):
     async def btn_book(self, button: discord.ui.Button, interaction: discord.Interaction):
         await interaction.response.send_modal(AskBookModal(self.bot))
 
-    @discord.ui.button(label="80億隨機投胎", style=discord.ButtonStyle.secondary, emoji="🎲", row=1)
-    async def btn_life(self, button: discord.ui.Button, interaction: discord.Interaction):
-        from cogs.life_cog import generate_baby, BirthCertificateView
-        session = generate_baby(interaction.user.id, rerolls=2)
-        view = BirthCertificateView(session, self.bot)
-        await interaction.response.send_message(embed=view.get_embed(), view=view)
+    @discord.ui.button(label="私房收藏", style=discord.ButtonStyle.primary, emoji="⭐", row=1)
+    async def btn_favorites(self, button: discord.ui.Button, interaction: discord.Interaction):
+        from core.favorites_manager import favorites_manager
+        from music.favorites_view import FavoritesView, build_favorites_embed
+        favs = favorites_manager.get_favorites(interaction.user.id)
+        embed = build_favorites_embed(interaction.user, favs)
+        view = FavoritesView(interaction.user, self.bot)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
     # ----------------------------------------------------
     # Row 2: 音樂即時控制器按鈕
@@ -580,15 +565,6 @@ class DashboardView(View):
     # ----------------------------------------------------
     # Row 4: 個人私房收藏與進階工具按鈕
     # ----------------------------------------------------
-    @discord.ui.button(label="私房收藏", style=discord.ButtonStyle.primary, emoji="⭐", row=4)
-    async def btn_favorites(self, button: discord.ui.Button, interaction: discord.Interaction):
-        from core.favorites_manager import favorites_manager
-        from music.favorites_view import FavoritesView, build_favorites_embed
-        favs = favorites_manager.get_favorites(interaction.user.id)
-        embed = build_favorites_embed(interaction.user, favs)
-        view = FavoritesView(interaction.user, self.bot)
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
-
     @discord.ui.button(label="隨機播收藏", style=discord.ButtonStyle.success, emoji="🔀", row=4)
     async def btn_fav_shuffle(self, button: discord.ui.Button, interaction: discord.Interaction):
         from core.favorites_manager import favorites_manager
@@ -643,37 +619,32 @@ class DashboardView(View):
         embed.set_footer(text=f"✦ 今日專屬書頁 第 {page_no} 頁 ✦ 每日凌晨更新 ✦")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @discord.ui.button(label="生涯檔案", style=discord.ButtonStyle.secondary, emoji="📜", row=4)
-    async def btn_life_stats(self, button: discord.ui.Button, interaction: discord.Interaction):
-        from cogs.life_cog import load_all_stats
-        data = load_all_stats()
-        uid_str = str(interaction.user.id)
-        u = data.get(uid_str)
-        if not u or u.get("total_lives", 0) == 0:
-            return await interaction.response.send_message(
-                "📜 您尚未開啟過任何一段《80億分之1》人生輪迴！請點擊「🎲 80億隨機投胎」開始第一次人生體驗。",
-                ephemeral=True
-            )
-
-        embed = discord.Embed(
-            title=f"📜 {interaction.user.display_name} 的輪迴生涯檔案庫",
-            description=f"✦ **累計轉世次數**：`{u['total_lives']}` 次\n✦ **人生最高壽命**：`{u['max_age']}` 歲\n✦ **最高幸福指數**：`{u['best_happiness']}` 分\n✦ **最高成就財富**：`{u['best_wealth']}` 分",
-            color=0x9B59B6
-        )
-        if u.get("countries_visited"):
-            sorted_c = sorted(u["countries_visited"].items(), key=lambda x: x[1], reverse=True)[:5]
-            c_text = "、".join([f"{c} ({cnt}次)" for c, cnt in sorted_c])
-            embed.add_field(name="🌍 最常降生國籍", value=c_text, inline=False)
-        if u.get("titles"):
-            embed.add_field(name="🏅 解鎖人生稱號圖鑑", value="\n".join([f"• {t}" for t in u["titles"][:6]]), inline=False)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-
     @discord.ui.button(label="錄音開關", style=discord.ButtonStyle.secondary, emoji="🎙️", row=4)
     async def btn_toggle_record(self, button: discord.ui.Button, interaction: discord.Interaction):
         vm = self.bot.voice_manager
         vm.auto_record = not vm.auto_record
         status = "🔴 全程自動錄音已開啟 (進出語音自動存檔)" if vm.auto_record else "⚪ 全程自動錄音已關閉"
         await interaction.response.send_message(status, ephemeral=True)
+
+    @discord.ui.button(label="系統狀態", style=discord.ButtonStyle.secondary, emoji="⚙️", row=4)
+    async def btn_sysinfo(self, button: discord.ui.Button, interaction: discord.Interaction):
+        import time, threading
+        from cogs.admin_cog import START_TIME
+        uptime_sec = int(time.time() - START_TIME)
+        hrs, rem = divmod(uptime_sec, 3600)
+        mins, secs = divmod(rem, 60)
+        uptime_str = f"{hrs}小時 {mins}分 {secs}秒"
+
+        embed = discord.Embed(
+            title="⚙️ 機器人系統運作狀態",
+            color=0x3498DB
+        )
+        embed.add_field(name="📶 延遲 (Ping)", value=f"`{int(self.bot.latency * 1000)} ms`", inline=True)
+        embed.add_field(name="⏱️ 運行時間", value=f"`{uptime_str}`", inline=True)
+        embed.add_field(name="🧵 運作執行緒", value=f"`{threading.active_count()} 個背景線程`", inline=True)
+        embed.add_field(name="🌐 連線伺服器數", value=f"`{len(self.bot.guilds)}`", inline=True)
+        embed.add_field(name="🎙️ 語音連線中", value=f"`{len(self.bot.voice_clients)}` 個頻道", inline=True)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 # ==============================================================================

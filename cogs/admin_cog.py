@@ -21,7 +21,6 @@ COG_MAPPING = {
     "auth": "cogs.auth_cog",
     "admin": "cogs.admin_cog",
     "book": "cogs.book_cog",
-    "life": "cogs.life_cog",
     "panel": "cogs.panel_cog",
 }
 
@@ -41,7 +40,7 @@ class AdminCog(commands.Cog):
         target: Option(
             str,
             "選擇要熱重載的模組",
-            choices=["全部模組 (all)", "控制面板 (panel)", "音樂模組 (music)", "人生遊戲 (life)", "解答之書 (book)", "錄音模組 (record)", "頻道管理 (channel)", "帳號認證 (auth)"],
+            choices=["全部模組 (all)", "控制面板 (panel)", "音樂模組 (music)", "解答之書 (book)", "錄音模組 (record)", "頻道管理 (channel)", "帳號認證 (auth)"],
             required=False,
             default="全部模組 (all)"
         )
