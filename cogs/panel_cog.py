@@ -646,6 +646,30 @@ class DashboardView(View):
         embed.add_field(name="🎙️ 語音連線中", value=f"`{len(self.bot.voice_clients)}` 個頻道", inline=True)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    @discord.ui.button(label="重啟機器人", style=discord.ButtonStyle.danger, emoji="🔄", row=4)
+    async def btn_restart(self, button: discord.ui.Button, interaction: discord.Interaction):
+        if not (
+            interaction.user.guild_permissions.administrator
+            or interaction.user.guild_permissions.manage_guild
+            or (interaction.guild and interaction.user.id == interaction.guild.owner_id)
+        ):
+            return await interaction.response.send_message("❌ 只有伺服器管理員或擁有者才能執行重啟！", ephemeral=True)
+
+        from cogs.admin_cog import RestartConfirmView
+        embed = discord.Embed(
+            title="🔄 機器人重新啟動確認",
+            description=(
+                "您確定要完全重新啟動機器人進程嗎？\n\n"
+                "⚠️ **注意事項**：\n"
+                "• 重新啟動將暫時中斷語音連線、音樂播放與錄音。\n"
+                "• 全新進程將在約 3~5 秒後自動啟動上線並發送就緒通知。\n"
+                "• 若只需更新設定，亦可點選分類選單中的熱重載模組。"
+            ),
+            color=0xE74C3C
+        )
+        view = RestartConfirmView(self.bot, interaction.user.id)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
 
 # ==============================================================================
 # 4. Cog 指令

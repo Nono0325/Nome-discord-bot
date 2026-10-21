@@ -47,3 +47,4 @@ RECORDINGS_DIR.mkdir(exist_ok=True)
 OAUTH_JSON_PATH = CONFIG_DIR / "oauth.json"
 BROWSER_JSON_PATH = CONFIG_DIR / "browser.json"
 COOKIES_TXT_PATH = CONFIG_DIR / "cookies.txt"
+RESTART_INFO_PATH = CONFIG_DIR / "restart_info.json"

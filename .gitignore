@@ -17,6 +17,7 @@ config/browser.json
 config/cookies.txt
 config/guild_settings.json
 config/favorites.json
+config/restart_info.json
 
 # Audio Recordings
 recordings/

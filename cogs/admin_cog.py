@@ -1,6 +1,8 @@
 import os
 import sys
 import time
+import json
+import subprocess
 import importlib
 import logging
 import threading
@@ -8,6 +10,8 @@ import asyncio
 import discord
 from discord.ext import commands
 from discord.commands import slash_command, Option
+
+from config.settings import RESTART_INFO_PATH, BASE_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +27,83 @@ COG_MAPPING = {
     "book": "cogs.book_cog",
     "panel": "cogs.panel_cog",
 }
+
+async def execute_bot_restart(bot: discord.Bot):
+    """
+    執行完全重新啟動：優雅釋放語音連線後生成全新 Python 行程並結束舊行程
+    """
+    logger.info("⚡ 正在執行機器人完全重新啟動 (Full Reboot)...")
+
+    # 1. 優雅斷開所有伺服器的語音連線並保存錄音
+    for guild in list(bot.guilds):
+        try:
+            if hasattr(bot, "voice_manager"):
+                await bot.voice_manager.disconnect_voice(guild.id)
+        except Exception as ex:
+            logger.debug(f"斷開語音伺服器 {guild.id} 警告: {ex}")
+
+    # 2. 啟動全新 Python 行程
+    python_exe = sys.executable
+    script_path = str(BASE_DIR / "main.py")
+
+    kwargs = {}
+    if sys.platform == "win32":
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+
+    subprocess.Popen([python_exe, script_path], cwd=str(BASE_DIR), **kwargs)
+
+    # 3. 關閉 Discord 連線並終止舊行程
+    await bot.close()
+    await asyncio.sleep(0.5)
+    os._exit(0)
+
+
+class RestartConfirmView(discord.ui.View):
+    """
+    重新啟動確認按鈕視圖
+    """
+    def __init__(self, bot: discord.Bot, author_id: int):
+        super().__init__(timeout=60)
+        self.bot = bot
+        self.author_id = author_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("❌ 只有發起重啟的管理員可以進行確認！", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="確認重新啟動", style=discord.ButtonStyle.danger, emoji="🔄")
+    async def confirm_restart(self, button: discord.ui.Button, interaction: discord.Interaction):
+        for child in self.children:
+            child.disabled = True
+
+        embed = discord.Embed(
+            title="🔄 機器人正在重新啟動中...",
+            description="正在釋放連線資源並啟動全新進程，預計 3~5 秒內完成，請稍候...",
+            color=0xE67E22
+        )
+        await interaction.response.edit_message(embed=embed, view=self)
+
+        # 儲存重啟訊息資訊
+        try:
+            with open(RESTART_INFO_PATH, "w", encoding="utf-8") as f:
+                json.dump({
+                    "channel_id": interaction.channel_id,
+                    "message_id": interaction.message.id,
+                    "timestamp": time.time()
+                }, f)
+        except Exception as e:
+            logger.error(f"儲存重啟資訊失敗: {e}")
+
+        # 執行重啟
+        await execute_bot_restart(self.bot)
+
+    @discord.ui.button(label="取消", style=discord.ButtonStyle.secondary, emoji="✖️")
+    async def cancel_restart(self, button: discord.ui.Button, interaction: discord.Interaction):
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(content="❎ 已取消重新啟動。", embed=None, view=None)
 
 class AdminCog(commands.Cog):
     """
@@ -153,6 +234,59 @@ class AdminCog(commands.Cog):
         embed.add_field(name="🚀 Python 版本", value=sys.version.split()[0], inline=True)
 
         await ctx.respond(embed=embed)
+
+    def _is_admin(self, ctx: discord.ApplicationContext) -> bool:
+        if not ctx.guild:
+            return True
+        return (
+            ctx.author.guild_permissions.administrator
+            or ctx.author.guild_permissions.manage_guild
+            or ctx.author.id == ctx.guild.owner_id
+        )
+
+    @slash_command(name="restart", description="[管理員限定] 完全重新啟動機器人進程 (Reboot Process)")
+    async def restart_bot(
+        self,
+        ctx: discord.ApplicationContext,
+        force: Option(bool, "是否跳過確認直接重新啟動", required=False, default=False) = False
+    ):
+        if not self._is_admin(ctx):
+            return await ctx.respond("❌ 只有伺服器管理員或擁有者才能執行重啟！", ephemeral=True)
+
+        if force:
+            embed = discord.Embed(
+                title="🔄 機器人正在重新啟動中...",
+                description="正在釋放連線資源並啟動全新進程，預計 3~5 秒內完成，請稍候...",
+                color=0xE67E22
+            )
+            msg = await ctx.respond(embed=embed)
+            actual_msg = await msg.fetch() if hasattr(msg, "fetch") else msg
+
+            try:
+                with open(RESTART_INFO_PATH, "w", encoding="utf-8") as f:
+                    json.dump({
+                        "channel_id": ctx.channel_id,
+                        "message_id": actual_msg.id if actual_msg else 0,
+                        "timestamp": time.time()
+                    }, f)
+            except Exception as e:
+                logger.error(f"儲存重啟資訊失敗: {e}")
+
+            await execute_bot_restart(self.bot)
+        else:
+            embed = discord.Embed(
+                title="🔄 機器人重新啟動確認",
+                description=(
+                    "您確定要完全重新啟動機器人進程嗎？\n\n"
+                    "⚠️ **注意事項**：\n"
+                    "• 重新啟動將暫時中斷目前的語音連線、音樂播放與錄音。\n"
+                    "• 全新進程將在約 3~5 秒後自動上線並恢復運作。\n"
+                    "• 若只需更新程式或指令，建議優先使用不斷線熱重載 `/reload`。"
+                ),
+                color=0xE74C3C
+            )
+            view = RestartConfirmView(self.bot, ctx.author.id)
+            await ctx.respond(embed=embed, view=view, ephemeral=True)
 
 def setup(bot: discord.Bot):
     bot.add_cog(AdminCog(bot))

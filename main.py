@@ -27,7 +27,8 @@ from config.settings import (
     AUTO_RECORD,
     REPLAY_BUFFER_SECONDS,
     AUTO_JOIN_ENABLED,
-    AUTO_JOIN_MIN_MEMBERS
+    AUTO_JOIN_MIN_MEMBERS,
+    RESTART_INFO_PATH
 )
 import discord
 from core.pycord_patch import apply_pycord_patches
@@ -107,6 +108,37 @@ async def on_ready():
         name="YouTube Music 🎵 | /play | /clip"
     )
     await bot.change_presence(status=discord.Status.online, activity=activity)
+
+    # 檢查是否有未完成的重啟通知
+    if RESTART_INFO_PATH.exists():
+        try:
+            import json
+            import time
+            with open(RESTART_INFO_PATH, "r", encoding="utf-8") as f:
+                r_info = json.load(f)
+            RESTART_INFO_PATH.unlink(missing_ok=True)
+            ch_id = r_info.get("channel_id")
+            msg_id = r_info.get("message_id")
+            start_ts = r_info.get("timestamp", 0)
+            elapsed_sec = round(time.time() - start_ts, 2) if start_ts else 0
+
+            channel = bot.get_channel(ch_id)
+            if channel:
+                msg = await channel.fetch_message(msg_id)
+                if msg:
+                    embed = discord.Embed(
+                        title="✅ 機器人已成功重新啟動！",
+                        description=(
+                            f"🔄 **重啟耗時**: `{elapsed_sec}` 秒\n"
+                            f"⚡ **連線延遲 (Ping)**: `{int(bot.latency * 1000)}` ms\n"
+                            f"🌐 **連線伺服器數**: `{len(bot.guilds)}`\n\n"
+                            "全功能模組已全新載入完畢，隨時可進行點歌或語音操作！"
+                        ),
+                        color=0x2ECC71
+                    )
+                    await msg.edit(embed=embed, view=None)
+        except Exception as ex:
+            logger.debug(f"更新重啟訊息失敗: {ex}")
 
 @bot.event
 async def on_voice_state_update(member, before, after):
