@@ -35,6 +35,7 @@ class GuildPlayer:
         self.volume: float = 0.5
         self.loop_mode: str = "off"  # "off", "song", "queue"
         self.autoplay: bool = False   # 無盡推薦電台模式
+        self.current_bitrate: int = 128  # 當前播放音訊位元率 (kbps)
         
         self.text_channel: Optional[discord.TextChannel] = None
         self.player_task: Optional[asyncio.Task] = None
@@ -206,7 +207,34 @@ class GuildPlayer:
                 self.pause_start_time = None
                 self.total_paused_duration = 0.0
 
-                vc.play(source, after=after_playing)
+                # 計算該伺服器與語音頻道支援的最高音訊位元率 (kbps)
+                ch_kbps = int(vc.channel.bitrate / 1000) if getattr(vc.channel, "bitrate", None) else 128
+                limit_kbps = int(vc.guild.bitrate_limit / 1000) if hasattr(vc.guild, "bitrate_limit") else ch_kbps
+                target_bitrate = min(512, max(ch_kbps, limit_kbps, 128))
+                self.current_bitrate = target_bitrate
+
+                # 若 VoiceClient 已經建立 Opus 編碼器，即時調整至最高音質參數
+                if hasattr(vc, "encoder") and vc.encoder:
+                    try:
+                        vc.encoder.set_bitrate(target_bitrate)
+                        vc.encoder.set_signal_type("music")
+                        vc.encoder.set_bandwidth("full")
+                        vc.encoder.set_fec(True)
+                        vc.encoder.set_expected_packet_loss_percent(0.05)
+                    except Exception as e_enc:
+                        logger.debug(f"設置 Opus 編碼器參數警告: {e_enc}")
+
+                # 以最高音質標準 (OPUS_SIGNAL_MUSIC, OPUS_APPLICATION_AUDIO, fullband, 最大位元率) 播放音訊
+                vc.play(
+                    source,
+                    after=after_playing,
+                    application="audio",
+                    bitrate=target_bitrate,
+                    fec=True,
+                    expected_packet_loss=0.05,
+                    bandwidth="full",
+                    signal_type="music"
+                )
 
                 # 發送正在播放 Embed
                 await self.send_now_playing()
@@ -253,12 +281,15 @@ class GuildPlayer:
         loop_str = {"off": "關閉", "song": "單曲循環", "queue": "清單循環"}.get(self.loop_mode, "關閉")
         embed.add_field(name="循環模式", value=loop_str, inline=True)
         embed.add_field(name="無盡電台", value="🟢 開啟" if self.autoplay else "⚪ 關閉", inline=True)
+        
+        bitrate_display = getattr(self, "current_bitrate", 128)
+        embed.add_field(name="音質規格", value=f"✨ 48kHz Hi-Fi ({bitrate_display} kbps)", inline=True)
         embed.add_field(name="音量", value=f"{int(self.volume * 100)}%", inline=True)
         embed.add_field(name="佇列尚餘", value=f"{len(self.queue_list)} 首", inline=True)
 
         if self.current.thumbnail:
             embed.set_thumbnail(url=self.current.thumbnail)
-        embed.set_footer(text="點擊下方按鈕可進行快速控制，或使用 /clip 擷取前一分鐘語音對話")
+        embed.set_footer(text=f"✨ Hi-Fi 原音品質 • 48kHz 立體聲 • Opus {bitrate_display} kbps • 點擊按鈕快速控制")
 
         view = MusicControlView(self)
         await target.send(embed=embed, view=view)

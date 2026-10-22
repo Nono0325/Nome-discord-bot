@@ -12,14 +12,16 @@ VENV_SCRIPTS = BASE_DIR / ".venv" / "Scripts"
 if VENV_SCRIPTS.exists():
     os.environ["PATH"] = str(VENV_SCRIPTS) + os.pathsep + os.environ.get("PATH", "")
 
+# 設定 ffmpeg 執行檔路徑
+FFMPEG_EXE = VENV_SCRIPTS / "ffmpeg.exe" if (VENV_SCRIPTS / "ffmpeg.exe").exists() else Path("ffmpeg")
+
 # 設定 pydub ffmpeg 路徑
 try:
     import pydub
     from pydub import AudioSegment
-    ffmpeg_exe = VENV_SCRIPTS / "ffmpeg.exe"
-    if ffmpeg_exe.exists():
-        AudioSegment.converter = str(ffmpeg_exe)
-        AudioSegment.ffmpeg = str(ffmpeg_exe)
+    if FFMPEG_EXE.exists():
+        AudioSegment.converter = str(FFMPEG_EXE)
+        AudioSegment.ffmpeg = str(FFMPEG_EXE)
 except ImportError:
     pass
 

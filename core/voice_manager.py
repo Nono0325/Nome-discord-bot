@@ -54,6 +54,16 @@ class VoiceManager:
         else:
             vc = await voice_channel.connect(timeout=60.0, reconnect=True)
 
+        # 自動檢查並將語音頻道音質升級為該伺服器所支援之最高位元率 (若具備管理頻道權限)
+        try:
+            if guild.me and voice_channel.permissions_for(guild.me).manage_channels:
+                max_limit = int(guild.bitrate_limit)
+                if voice_channel.bitrate < max_limit:
+                    await voice_channel.edit(bitrate=max_limit, reason="自動升級語音頻道音質至伺服器最高上限")
+                    logger.info(f"已自動將語音頻道 {voice_channel.name} 音質升級至 {max_limit // 1000} kbps")
+        except Exception as ex:
+            logger.debug(f"升級語音頻道音質跳過: {ex}")
+
         # 設定音樂播放器的預設文字頻道
         player = self.get_player(guild.id)
         if text_channel:

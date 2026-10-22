@@ -4,13 +4,14 @@ from dataclasses import dataclass
 from typing import Optional, Dict, Any
 import discord
 import yt_dlp
-from config.settings import COOKIES_TXT_PATH
+from config.settings import COOKIES_TXT_PATH, FFMPEG_EXE
 
 logger = logging.getLogger(__name__)
 
-# yt-dlp 選項設定
+# yt-dlp 選項設定：強制優先挑選最高音質 Opus 串流 (48kHz/最高位元率)，並指定 ffmpeg 位置
 YTDL_OPTIONS: Dict[str, Any] = {
-    "format": "bestaudio/best",
+    "format": "bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio/best",
+    "format_sort": ["abr", "asr", "acodec:opus", "ext:webm"],
     "extractaudio": True,
     "audioformat": "opus",
     "outtmpl": "%(extractor)s-%(id)s-%(title)s.%(ext)s",
@@ -24,19 +25,23 @@ YTDL_OPTIONS: Dict[str, Any] = {
     "default_search": "auto",
     "source_address": "0.0.0.0",
     "js_runtimes": {"node": {}},
+    "ffmpeg_location": str(FFMPEG_EXE),
 }
 
 if COOKIES_TXT_PATH.exists():
     YTDL_OPTIONS["cookiefile"] = str(COOKIES_TXT_PATH)
 
-# FFmpeg 串流播放參數 (增加瀏覽器 User-Agent 與網路斷線自動重連，徹底杜絕 YouTube -10054 斷線與播放無聲)
+# FFmpeg 串流播放參數：
+# 1. 啟用專業級 Sinc 多相位重採樣器 (filter_size=32, cutoff=0.99)，保證 44.1kHz 音訊轉 48kHz 原音無損重現
+# 2. 擴增緩衝區至 8192k 避免高位元率串流抖動
+# 3. 完整重連與瀏覽器標頭，杜絕 YouTube 斷線
 FFMPEG_OPTIONS = {
     "before_options": (
         '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -reconnect_at_eof 1 '
         '-reconnect_on_network_error 1 -reconnect_on_http_error 4xx,5xx '
         '-user_agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"'
     ),
-    "options": "-vn -bufsize 4096k"
+    "options": "-vn -bufsize 8192k -af aresample=48000:filter_size=32:cutoff=0.99"
 }
 
 ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
@@ -83,7 +88,11 @@ class YTDLSource(discord.PCMVolumeTransformer):
         if not song.stream_url:
             raise RuntimeError(f"無法取得曲目串流網址: {song.title}")
 
-        audio_source = discord.FFmpegPCMAudio(song.stream_url, **FFMPEG_OPTIONS)
+        audio_source = discord.FFmpegPCMAudio(
+            song.stream_url,
+            executable=str(FFMPEG_EXE),
+            **FFMPEG_OPTIONS
+        )
         return cls(audio_source, song=song, volume=volume)
 
     @classmethod

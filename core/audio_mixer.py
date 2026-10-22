@@ -167,7 +167,7 @@ class AudioMixer:
         except Exception as e:
             logger.debug("音訊標準化跳過: %s", e)
 
-        seg.export(output, format="mp3", bitrate="192k")
+        seg.export(output, format="mp3", bitrate="320k")
         output.seek(0)
         return output, active_users
 
@@ -249,7 +249,7 @@ class AudioMixer:
         except Exception as e:
             logger.debug("音訊標準化跳過: %s", e)
 
-        seg.export(str(output_path), format="mp3", bitrate="192k")
+        seg.export(str(output_path), format="mp3", bitrate="320k")
         return str(output_path)
 
     @classmethod
