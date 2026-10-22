@@ -199,7 +199,7 @@ class BookCog(commands.Cog):
             color=0xE67E22 # 溫暖晨曦橙
         )
         embed.set_footer(text=f"✦ 今日專屬書頁 第 {page_no} 頁 ✦ 每日凌晨更新 ✦")
-        await ctx.respond(embed=embed)
+        await ctx.respond(embed=embed, ephemeral=True)
 
 def setup(bot: discord.Bot):
     bot.add_cog(BookCog(bot))

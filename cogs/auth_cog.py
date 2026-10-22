@@ -49,7 +49,7 @@ class AuthCog(commands.Cog):
             )
             embed.add_field(name="功能狀態", value=features, inline=False)
 
-        await ctx.respond(embed=embed)
+        await ctx.respond(embed=embed, ephemeral=True)
 
     @slash_command(name="google_login", description="查看如何登入 Google 帳號以播放個人 YouTube Music 歌單")
     async def google_login(self, ctx: discord.ApplicationContext):
@@ -76,12 +76,12 @@ class AuthCog(commands.Cog):
         embed.add_field(name="方式二：瀏覽器 Cookie / 請求標頭（免建 GCP 憑證）", value=cookie_guide, inline=False)
 
         embed.set_footer(text="完成登入後，機器人將立即同步您的 YouTube Music 帳號！")
-        await ctx.respond(embed=embed)
+        await ctx.respond(embed=embed, ephemeral=True)
 
     @slash_command(name="google_logout", description="登出目前儲存的 Google 帳號憑證並切換回訪客模式")
     async def google_logout(self, ctx: discord.ApplicationContext):
         if not ytm_client.is_authenticated():
-            return await ctx.respond("目前未登入任何 Google 帳號。")
+            return await ctx.respond("目前未登入任何 Google 帳號。", ephemeral=True)
 
         removed = []
         if OAUTH_JSON_PATH.exists():
@@ -106,7 +106,7 @@ class AuthCog(commands.Cog):
                 pass
 
         ytm_client.reload()
-        await ctx.respond(f"✅ 已成功清除憑證 ({', '.join(removed)})，已切換回訪客模式！")
+        await ctx.respond(f"✅ 已成功清除憑證 ({', '.join(removed)})，已切換回訪客模式！", ephemeral=True)
 
 def setup(bot: discord.Bot):
     bot.add_cog(AuthCog(bot))

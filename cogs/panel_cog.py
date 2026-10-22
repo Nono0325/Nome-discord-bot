@@ -142,7 +142,7 @@ class AskBookModal(Modal):
         embed.set_footer(text=f"✦ 第 {page_no} 頁 ✦ 誠心所願，心誠則靈 ✦")
 
         view = BookAnswersView(interaction.user.id, question=question)
-        await interaction.response.send_message(embed=embed, view=view)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
 # ==============================================================================
@@ -706,7 +706,7 @@ class PanelCog(commands.Cog):
             pass
 
         if target_ch.id != ctx.channel.id:
-            await ctx.respond(f"✅ 已在專屬音樂頻道 {target_ch.mention} 成功部署並置頂圖形控制面板！")
+            await ctx.respond(f"✅ 已在專屬音樂頻道 {target_ch.mention} 成功部署並置頂圖形控制面板！", ephemeral=True)
         else:
             await ctx.respond("✅ 已成功部署全功能圖形化控制面板！", ephemeral=True)
 

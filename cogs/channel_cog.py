@@ -132,7 +132,7 @@ class ChannelCog(commands.Cog):
                 description=f"已成功將專屬音樂頻道指定為：{channel.mention}\n以後所有音樂控制面板與播報訊息都會集中在此頻道發送。",
                 color=0x2ECC71
             )
-            await ctx.respond(embed=embed)
+            await ctx.respond(embed=embed, ephemeral=True)
         else:
             current_ch = guild_settings.get_music_channel(ctx.guild)
             current_desc = f"目前已設定：{current_ch.mention}" if current_ch else "目前狀態：未設定（隨指令頻道發送）"
@@ -172,7 +172,7 @@ class ChannelCog(commands.Cog):
             )
             embed.set_footer(text="您可以使用 /set_channel 設定一個專屬文字頻道！")
 
-        await ctx.respond(embed=embed)
+        await ctx.respond(embed=embed, ephemeral=True)
 
     @slash_command(name="clear_channel", description="清除專屬音樂文字頻道設定（恢復為隨指令頻道發送）")
     async def clear_channel(self, ctx: discord.ApplicationContext):
@@ -195,7 +195,7 @@ class ChannelCog(commands.Cog):
                 description="本伺服器本來就未綁定專屬音樂頻道，目前已處於預設模式。",
                 color=0x95A5A6
             )
-        await ctx.respond(embed=embed)
+        await ctx.respond(embed=embed, ephemeral=True)
 
 def setup(bot: discord.Bot):
     bot.add_cog(ChannelCog(bot))

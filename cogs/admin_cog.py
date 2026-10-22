@@ -237,7 +237,7 @@ class AdminCog(commands.Cog):
         embed.add_field(name="🔊 活躍語音連線", value=f"{voice_clients} 個", inline=True)
         embed.add_field(name="🚀 Python 版本", value=sys.version.split()[0], inline=True)
 
-        await ctx.respond(embed=embed)
+        await ctx.respond(embed=embed, ephemeral=True)
 
     def _is_admin(self, ctx: discord.ApplicationContext) -> bool:
         if not ctx.guild:

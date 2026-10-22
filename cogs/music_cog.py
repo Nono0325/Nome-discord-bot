@@ -32,12 +32,12 @@ class PlaylistSelect(discord.ui.Select):
         self.player = player
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=True)
         playlist_id = self.values[0]
         try:
             songs = ytm_client.get_playlist_songs(playlist_id, limit=50)
             if not songs:
-                return await interaction.followup.send("⚠️ 此播放清單內沒有找到可播放的歌曲。")
+                return await interaction.followup.send("⚠️ 此播放清單內沒有找到可播放的歌曲。", ephemeral=True)
 
             user_name = interaction.user.display_name
             added_count = 0
@@ -59,9 +59,9 @@ class PlaylistSelect(discord.ui.Select):
                 description=f"已將 **{added_count}** 首歌曲加入播放佇列！",
                 color=0xFF0033
             )
-            await interaction.followup.send(embed=embed)
+            await interaction.followup.send(embed=embed, ephemeral=True)
         except Exception as e:
-            await interaction.followup.send(f"❌ 讀取歌單失敗: {e}")
+            await interaction.followup.send(f"❌ 讀取歌單失敗: {e}", ephemeral=True)
 
 class PlaylistSelectView(discord.ui.View):
     def __init__(self, playlists: list, player: GuildPlayer):
@@ -88,7 +88,7 @@ class GenreSelect(discord.ui.Select):
         self.player = player
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=True)
         from music.ytm_client import ytm_client, GENRES_MAP
         import asyncio
         genre_key = self.values[0]
@@ -97,7 +97,7 @@ class GenreSelect(discord.ui.Select):
         try:
             songs = await asyncio.to_thread(ytm_client.get_genre_songs, genre_key, 20)
             if not songs:
-                return await interaction.followup.send(f"⚠️ 找不到與 {g_info['name']} 相關的曲目。")
+                return await interaction.followup.send(f"⚠️ 找不到與 {g_info['name']} 相關的曲目。", ephemeral=True)
 
             user_name = interaction.user.display_name
             for s in songs:
@@ -117,9 +117,9 @@ class GenreSelect(discord.ui.Select):
                 description=f"已成功為您隨機混音並加入 **{len(songs)}** 首好歌至播放佇列！",
                 color=0x9B59B6
             )
-            await interaction.followup.send(embed=embed)
+            await interaction.followup.send(embed=embed, ephemeral=True)
         except Exception as e:
-            await interaction.followup.send(f"❌ 載入曲風失敗: {e}")
+            await interaction.followup.send(f"❌ 載入曲風失敗: {e}", ephemeral=True)
 
 class GenreSelectView(discord.ui.View):
     def __init__(self, player: GuildPlayer):
@@ -143,7 +143,7 @@ class VoiceChannelSelectDropdown(discord.ui.Select):
         self.text_channel = text_channel
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=True)
         selected_channel = self.values[0]
         vc_target = interaction.guild.get_channel(selected_channel.id)
         if not vc_target or not isinstance(vc_target, (discord.VoiceChannel, discord.StageChannel)):
@@ -156,7 +156,7 @@ class VoiceChannelSelectDropdown(discord.ui.Select):
                 description=f"機器人已連線至 {vc_target.mention}，現在可以使用 `/play` 開始點歌！",
                 color=0x2ECC71
             )
-            await interaction.followup.send(embed=embed)
+            await interaction.followup.send(embed=embed, ephemeral=True)
         except Exception as e:
             await interaction.followup.send(f"❌ 連線至語音頻道失敗: {e}", ephemeral=True)
 
@@ -199,7 +199,7 @@ class MusicCog(commands.Cog):
     ):
         # 情況 1：直接在指令中指定了語音頻道
         if channel:
-            await ctx.defer()
+            await ctx.defer(ephemeral=True)
             try:
                 await self.voice_mgr.connect_voice(channel, text_channel=ctx.channel, manual=True)
                 embed = discord.Embed(
@@ -207,7 +207,7 @@ class MusicCog(commands.Cog):
                     description=f"機器人已連線至 {channel.mention}，現在可以使用 `/play` 開始點歌！",
                     color=0x2ECC71
                 )
-                await ctx.respond(embed=embed)
+                await ctx.respond(embed=embed, ephemeral=True)
             except Exception as e:
                 await ctx.respond(f"❌ 連線至語音頻道失敗: {e}", ephemeral=True)
             return
@@ -215,7 +215,7 @@ class MusicCog(commands.Cog):
         # 情況 2：使用者已在某個語音頻道中
         if ctx.author.voice and ctx.author.voice.channel:
             target = ctx.author.voice.channel
-            await ctx.defer()
+            await ctx.defer(ephemeral=True)
             try:
                 await self.voice_mgr.connect_voice(target, text_channel=ctx.channel, manual=True)
                 embed = discord.Embed(
@@ -223,7 +223,7 @@ class MusicCog(commands.Cog):
                     description=f"機器人已加入您所在的頻道 {target.mention}！",
                     color=0x2ECC71
                 )
-                await ctx.respond(embed=embed)
+                await ctx.respond(embed=embed, ephemeral=True)
             except Exception as e:
                 await ctx.respond(f"❌ 連線至語音頻道失敗: {e}", ephemeral=True)
             return
@@ -244,6 +244,10 @@ class MusicCog(commands.Cog):
         query: Option(str, "歌曲名稱、關鍵字或 YouTube / YouTube Music 網址", required=True),
         channel: Option(discord.VoiceChannel, "指定要連線播放的語音頻道 (若未填寫則自動加入您所在的頻道)", required=False) = None
     ):
+        target_vc = channel or (ctx.author.voice.channel if ctx.author.voice else None)
+        if not target_vc:
+            return await ctx.respond("❌ 請先加入一個語音頻道，或在指令中指定要加入的語音頻道！", ephemeral=True)
+
         await ctx.defer()
         vc = await self._ensure_voice(ctx, target_channel=channel)
         if not vc:
@@ -298,7 +302,7 @@ class MusicCog(commands.Cog):
 
         except Exception as e:
             logger.error(f"播放歌曲失敗: {e}")
-            await ctx.respond(f"❌ 搜尋或解析歌曲失敗: {e}")
+            await ctx.respond(f"❌ 搜尋或解析歌曲失敗: {e}", ephemeral=True)
 
     @slash_command(name="ytm_liked", description="播放 Google 帳號 YouTube Music 中已按讚的好音樂")
     async def ytm_liked(
@@ -306,13 +310,15 @@ class MusicCog(commands.Cog):
         ctx: discord.ApplicationContext,
         limit: Option(int, "要加入的歌曲數量 (預設 25)", required=False, default=25)
     ):
-        await ctx.defer()
         if not ytm_client.is_authenticated():
             return await ctx.respond(
                 "❌ 尚未登入 Google 帳號！\n請先使用 `/google_login` 指令或執行 `python setup_google.py` 綁定 Google 帳號。",
                 ephemeral=True
             )
+        if not ctx.author.voice or not ctx.author.voice.channel:
+            return await ctx.respond("❌ 請先加入一個語音頻道！", ephemeral=True)
 
+        await ctx.defer()
         vc = await self._ensure_voice(ctx)
         if not vc:
             return
@@ -323,7 +329,7 @@ class MusicCog(commands.Cog):
         try:
             songs = ytm_client.get_liked_songs(limit=limit)
             if not songs:
-                return await ctx.respond("⚠️ 您的 Google 帳號中沒有找到已按讚的歌曲！")
+                return await ctx.respond("⚠️ 您的 Google 帳號中沒有找到已按讚的歌曲！", ephemeral=True)
 
             user_name = ctx.author.display_name
             for s in songs:
@@ -345,11 +351,11 @@ class MusicCog(commands.Cog):
             )
             await ctx.respond(embed=embed)
         except Exception as e:
-            await ctx.respond(f"❌ 讀取已按讚歌曲失敗: {e}")
+            await ctx.respond(f"❌ 讀取已按讚歌曲失敗: {e}", ephemeral=True)
 
     @slash_command(name="ytm_playlists", description="列出並選擇登入之 Google 帳號的個人播放清單")
     async def ytm_playlists(self, ctx: discord.ApplicationContext):
-        await ctx.defer()
+        await ctx.defer(ephemeral=True)
         if not ytm_client.is_authenticated():
             return await ctx.respond(
                 "❌ 尚未登入 Google 帳號！\n請先使用 `/google_login` 指令或執行 `python setup_google.py` 綁定 Google 帳號。",
@@ -366,7 +372,7 @@ class MusicCog(commands.Cog):
         try:
             playlists = ytm_client.get_user_playlists(limit=25)
             if not playlists:
-                return await ctx.respond("⚠️ 在您的 Google 帳號中未找到任何播放清單。")
+                return await ctx.respond("⚠️ 在您的 Google 帳號中未找到任何播放清單。", ephemeral=True)
 
             embed = discord.Embed(
                 title="📑 您的 YouTube Music 個人播放清單",
@@ -374,9 +380,9 @@ class MusicCog(commands.Cog):
                 color=0xFF0033
             )
             view = PlaylistSelectView(playlists, player)
-            await ctx.respond(embed=embed, view=view)
+            await ctx.respond(embed=embed, view=view, ephemeral=True)
         except Exception as e:
-            await ctx.respond(f"❌ 取得個人清單失敗: {e}")
+            await ctx.respond(f"❌ 取得個人清單失敗: {e}", ephemeral=True)
 
     @slash_command(name="ytm_radio", description="根據指定歌曲開啟 YouTube Music 無限電台")
     async def ytm_radio(
@@ -384,6 +390,9 @@ class MusicCog(commands.Cog):
         ctx: discord.ApplicationContext,
         query: Option(str, "種子歌曲名稱或藝人", required=True)
     ):
+        if not ctx.author.voice or not ctx.author.voice.channel:
+            return await ctx.respond("❌ 請先加入一個語音頻道！", ephemeral=True)
+
         await ctx.defer()
         vc = await self._ensure_voice(ctx)
         if not vc:
@@ -394,12 +403,12 @@ class MusicCog(commands.Cog):
 
         results = ytm_client.search_songs(query, limit=1)
         if not results:
-            return await ctx.respond(f"❌ 找不到與 `{query}` 相符的歌曲以產生電台。")
+            return await ctx.respond(f"❌ 找不到與 `{query}` 相符的歌曲以產生電台。", ephemeral=True)
 
         seed_song = results[0]
         radio_tracks = ytm_client.get_radio_songs(seed_song["id"])
         if not radio_tracks:
-            return await ctx.respond("⚠️ 無法為此歌曲生成電台推薦。")
+            return await ctx.respond("⚠️ 無法為此歌曲生成電台推薦。", ephemeral=True)
 
         user_name = ctx.author.display_name
         # 先加入種子曲
@@ -437,24 +446,24 @@ class MusicCog(commands.Cog):
     async def pause(self, ctx: discord.ApplicationContext):
         player = self.voice_mgr.get_player(ctx.guild.id)
         player.pause()
-        await ctx.respond("⏸️ 音樂已暫停。")
+        await ctx.respond("⏸️ 音樂已暫停。", ephemeral=True)
 
     @slash_command(name="resume", description="繼續播放已暫停的音樂")
     async def resume(self, ctx: discord.ApplicationContext):
         player = self.voice_mgr.get_player(ctx.guild.id)
         player.resume()
-        await ctx.respond("▶️ 已繼續播放音樂。")
+        await ctx.respond("▶️ 已繼續播放音樂。", ephemeral=True)
 
     @slash_command(name="skip", description="跳過當前歌曲")
     async def skip(self, ctx: discord.ApplicationContext):
         player = self.voice_mgr.get_player(ctx.guild.id)
         player.skip()
-        await ctx.respond("⏭️ 已跳至下一首曲目。")
+        await ctx.respond("⏭️ 已跳至下一首曲目。", ephemeral=True)
 
     @slash_command(name="stop", description="停止播放、清空佇列並離開語音頻道")
     async def stop(self, ctx: discord.ApplicationContext):
         await self.voice_mgr.disconnect_voice(ctx.guild.id)
-        await ctx.respond("⏹️ 已停止播放並退出語音頻道。")
+        await ctx.respond("⏹️ 已停止播放並退出語音頻道。", ephemeral=True)
 
     @slash_command(name="leave", description="讓機器人退出目前的語音頻道")
     async def leave(self, ctx: discord.ApplicationContext):
@@ -463,13 +472,13 @@ class MusicCog(commands.Cog):
         if not vc or not vc.is_connected():
             return await ctx.respond("❌ 機器人目前並未在任何語音頻道中。", ephemeral=True)
         await self.voice_mgr.disconnect_voice(guild.id)
-        await ctx.respond("👋 機器人已離開語音頻道。")
+        await ctx.respond("👋 機器人已離開語音頻道。", ephemeral=True)
 
     @slash_command(name="queue", description="查看當前的播放佇列")
     async def queue(self, ctx: discord.ApplicationContext):
         player = self.voice_mgr.get_player(ctx.guild.id)
         if not player.current and not player.queue_list:
-            return await ctx.respond("📭 目前播放清單是空的！使用 `/play` 來點歌吧！")
+            return await ctx.respond("📭 目前播放清單是空的！使用 `/play` 來點歌吧！", ephemeral=True)
 
         embed = discord.Embed(
             title="📋 目前播放佇列",
@@ -492,13 +501,13 @@ class MusicCog(commands.Cog):
                 tracks_str = tracks_str[:980] + "...\n*(過多歌曲已折疊)*"
             embed.add_field(name="⏳ 佇列中的歌曲", value=tracks_str, inline=False)
 
-        await ctx.respond(embed=embed)
+        await ctx.respond(embed=embed, ephemeral=True)
 
     @slash_command(name="nowplaying", description="查看目前正在播放的曲目詳細資訊")
     async def nowplaying(self, ctx: discord.ApplicationContext):
         player = self.voice_mgr.get_player(ctx.guild.id)
         if not player.current:
-            return await ctx.respond("目前沒有正在播放的音樂。")
+            return await ctx.respond("目前沒有正在播放的音樂。", ephemeral=True)
         await player.send_now_playing()
         await ctx.respond("已發送當前曲目卡片！", ephemeral=True)
 
@@ -511,7 +520,7 @@ class MusicCog(commands.Cog):
         player = self.voice_mgr.get_player(ctx.guild.id)
         vol_float = percent / 100.0
         player.set_volume(vol_float)
-        await ctx.respond(f"🔊 音量已調整為 **{percent}%**。")
+        await ctx.respond(f"🔊 音量已調整為 **{percent}%**。", ephemeral=True)
 
     @slash_command(name="loop", description="切換循環播放模式")
     async def loop(
@@ -528,15 +537,15 @@ class MusicCog(commands.Cog):
 
         player.loop_mode = mode_key
         names = {"off": "關閉循環", "song": "🔂 單曲循環", "queue": "🔁 清單循環"}
-        await ctx.respond(f"已設定為: **{names[mode_key]}**！")
+        await ctx.respond(f"已設定為: **{names[mode_key]}**！", ephemeral=True)
 
     @slash_command(name="shuffle", description="隨機打亂當前播放清單")
     async def shuffle(self, ctx: discord.ApplicationContext):
         player = self.voice_mgr.get_player(ctx.guild.id)
         count = player.shuffle()
         if count < 2:
-            return await ctx.respond("佇列中的歌曲少於 2 首，無法隨機排列。")
-        await ctx.respond(f"🔀 已成功打亂 **{count}** 首歌曲順序！")
+            return await ctx.respond("佇列中的歌曲少於 2 首，無法隨機排列。", ephemeral=True)
+        await ctx.respond(f"🔀 已成功打亂 **{count}** 首歌曲順序！", ephemeral=True)
 
     @slash_command(name="autoplay", description="切換無盡推薦電台模式（佇列結束時自動推薦並續播相似歌曲）")
     async def autoplay(
@@ -556,7 +565,7 @@ class MusicCog(commands.Cog):
             description=status_text,
             color=0x2ECC71 if player.autoplay else 0x95A5A6
         )
-        await ctx.respond(embed=embed)
+        await ctx.respond(embed=embed, ephemeral=True)
 
     @slash_command(name="genre", description="播放指定風格或情境的音樂 (動漫, Lo-Fi, 搖滾, 流行, 爵士, 嘻哈, 電音, 助眠...)")
     async def genre(
@@ -582,6 +591,9 @@ class MusicCog(commands.Cog):
             required=True
         )
     ):
+        if not ctx.author.voice or not ctx.author.voice.channel:
+            return await ctx.respond("❌ 請先加入一個語音頻道！", ephemeral=True)
+
         await ctx.defer()
         vc = await self._ensure_voice(ctx)
         if not vc:
@@ -599,7 +611,7 @@ class MusicCog(commands.Cog):
         try:
             songs = await asyncio.to_thread(ytm_client.get_genre_songs, key, 25)
             if not songs:
-                return await ctx.respond(f"⚠️ 找不到與 {g_info['name']} 相關的曲目。")
+                return await ctx.respond(f"⚠️ 找不到與 {g_info['name']} 相關的曲目。", ephemeral=True)
 
             user_name = ctx.author.display_name
             for s in songs:
@@ -621,7 +633,7 @@ class MusicCog(commands.Cog):
             )
             await ctx.respond(embed=embed)
         except Exception as e:
-            await ctx.respond(f"❌ 載入曲風失敗: {e}")
+            await ctx.respond(f"❌ 載入曲風失敗: {e}", ephemeral=True)
 
     @slash_command(name="genres", description="開啟 YouTube Music 曲風與情境音樂選擇選單")
     async def genres(self, ctx: discord.ApplicationContext):
@@ -638,10 +650,13 @@ class MusicCog(commands.Cog):
             color=0x9B59B6
         )
         view = GenreSelectView(player)
-        await ctx.respond(embed=embed, view=view)
+        await ctx.respond(embed=embed, view=view, ephemeral=True)
 
     @slash_command(name="random_play", description="隨機播放當前熱門流行歌曲或隨機精選合輯")
     async def random_play(self, ctx: discord.ApplicationContext):
+        if not ctx.author.voice or not ctx.author.voice.channel:
+            return await ctx.respond("❌ 請先加入一個語音頻道！", ephemeral=True)
+
         await ctx.defer()
         vc = await self._ensure_voice(ctx)
         if not vc:
@@ -654,7 +669,7 @@ class MusicCog(commands.Cog):
         try:
             songs = await asyncio.to_thread(ytm_client.get_random_popular_songs, 15)
             if not songs:
-                return await ctx.respond("⚠️ 取得熱門推薦歌曲失敗。")
+                return await ctx.respond("⚠️ 取得熱門推薦歌曲失敗。", ephemeral=True)
 
             user_name = ctx.author.display_name
             for s in songs:
@@ -676,7 +691,7 @@ class MusicCog(commands.Cog):
             )
             await ctx.respond(embed=embed)
         except Exception as e:
-            await ctx.respond(f"❌ 隨機探索失敗: {e}")
+            await ctx.respond(f"❌ 隨機探索失敗: {e}", ephemeral=True)
 
     @slash_command(name="lyrics", description="即時顯示目前播放歌曲的動態同步歌詞 (卡拉OK滾動) 或查詢特定歌曲歌詞")
     async def lyrics(
@@ -808,16 +823,18 @@ class MusicCog(commands.Cog):
         ctx: discord.ApplicationContext,
         shuffle: Option(bool, "是否隨機混洗順序播放", required=False, default=True) = True
     ):
-        await ctx.defer()
         from core.favorites_manager import favorites_manager
         favs = favorites_manager.get_favorites(ctx.author.id)
         if not favs:
             return await ctx.respond("⚠️ 您的私房收藏歌單目前是空的！可使用 `/favorite_add` 或點擊播放卡片上的「⭐ 收藏本曲」加入歌曲。", ephemeral=True)
 
+        if not ctx.author.voice or not ctx.author.voice.channel:
+            return await ctx.respond("❌ 請先加入一個語音頻道！", ephemeral=True)
+
+        await ctx.defer()
+
         player = self.voice_mgr.get_player(ctx.guild.id)
         if not player.voice_client or not player.voice_client.is_connected():
-            if not ctx.author.voice or not ctx.author.voice.channel:
-                return await ctx.respond("❌ 請先加入一個語音頻道！", ephemeral=True)
             await self.voice_mgr.connect_voice(ctx.author.voice.channel, text_channel=ctx.channel)
 
         player.text_channel = ctx.channel
