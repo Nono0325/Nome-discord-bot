@@ -46,9 +46,16 @@ intents.guilds = True
 bot = discord.Bot(intents=intents)
 bot.voice_manager = VoiceManager(bot)
 
-# 設定音訊接收日誌等級（避免損毀封包資訊刷屏）
+import warnings
+
+# 忽略 Pycord 內部硬編碼的 DAVE 實驗性警告 (已由自訂 Monkey Patch 接管運作)
+warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*Voice reception is currently broken.*")
+
+# 設定音訊接收與底層日誌等級（避免損毀封包資訊刷屏與良性內部進程通知）
 logging.getLogger("discord.opus").setLevel(logging.WARNING)
 logging.getLogger("discord.voice.receive.reader").setLevel(logging.WARNING)
+logging.getLogger("discord.player").setLevel(logging.WARNING)
+logging.getLogger("discord.voice.state").setLevel(logging.ERROR)
 
 # 載入 Cogs
 COGS = [

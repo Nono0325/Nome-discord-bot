@@ -190,7 +190,7 @@ class GuildPlayer:
 
             vc = self.voice_client
             if not vc or not vc.is_connected():
-                logger.warning("語音客戶端未連線，停止播放迴圈。")
+                logger.info("語音客戶端未連線或已斷開，結束播放迴圈。")
                 break
 
             # 觸發下一首歌曲的預載

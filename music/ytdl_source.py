@@ -37,6 +37,7 @@ YTDL_OPTIONS: Dict[str, Any] = {
     "logtostderr": False,
     "quiet": True,
     "no_warnings": True,
+    "noprogress": True,
     "default_search": "auto",
     "source_address": "0.0.0.0",
     "js_runtimes": JS_RUNTIMES,
