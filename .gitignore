@@ -19,12 +19,15 @@ config/guild_settings.json
 config/favorites.json
 config/restart_info.json
 
-# Audio Recordings
+# Audio Recordings & Cache
 recordings/
+cache/
 *.mp3
 *.wav
 *.ogg
 *.flac
+*.webm
+*.opus
 
 # IDE / Editor
 .vscode/
