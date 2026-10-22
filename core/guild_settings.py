@@ -68,4 +68,17 @@ class GuildSettingsManager:
                 return ch
         return None
 
+    def get_audio_bitrate(self, guild_id: int) -> int:
+        """取得指定伺服器設定的音質位元率 (kbps)，預設為 96 kbps (穩定抗抖動)"""
+        guild_key = str(guild_id)
+        return self._data.get(guild_key, {}).get("audio_bitrate", 96)
+
+    def set_audio_bitrate(self, guild_id: int, bitrate: int):
+        """設定指定伺服器的音質位元率 (kbps)"""
+        guild_key = str(guild_id)
+        if guild_key not in self._data:
+            self._data[guild_key] = {}
+        self._data[guild_key]["audio_bitrate"] = int(bitrate)
+        self._save()
+
 guild_settings = GuildSettingsManager()

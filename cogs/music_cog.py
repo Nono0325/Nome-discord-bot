@@ -854,6 +854,44 @@ class MusicCog(commands.Cog):
         )
         await ctx.respond(embed=embed)
 
+    @slash_command(name="quality", description="🎧 調整語音頻道音樂播放音質與位元率（防延遲卡頓/抗斷斷續續）")
+    async def quality(
+        self,
+        ctx: discord.ApplicationContext,
+        bitrate: Option(
+            int,
+            "選擇音質位元率 (kbps)",
+            choices=[
+                discord.OptionChoice("🌟 320 kbps (極致發燒，適合高速網路)", 320),
+                discord.OptionChoice("💎 192 kbps (超高音質，錄音室細節)", 192),
+                discord.OptionChoice("🎵 128 kbps (高品質，官方平衡推薦)", 128),
+                discord.OptionChoice("⚖️ 96 kbps (標準平衡，Discord預設不卡頓)", 96),
+                discord.OptionChoice("🛡️ 64 kbps (弱網防卡，強抗封包遺失)", 64),
+                discord.OptionChoice("⚡ 48 kbps (極速省流，極限抗延遲)", 48),
+            ],
+            required=False
+        ) = None
+    ):
+        from cogs.panel_cog import QualityControlView, build_quality_embed
+        player = self.voice_mgr.get_player(ctx.guild.id)
+        if bitrate is not None:
+            real_bitrate = player.set_bitrate(bitrate)
+            embed = discord.Embed(
+                title="🎧 音質位元率已即時更新！",
+                description=(
+                    f"✅ 已成功將伺服器播放音質調整為 **{real_bitrate} kbps**！\n\n"
+                    f"• **動態適應**：已即時向 Opus 編碼器推送新位元率，當前曲目無縫生效。\n"
+                    f"• **抗丟包補償**：已自動套用 {'20%' if real_bitrate <= 64 else ('15%' if real_bitrate <= 96 else '5%')} 封包遺失容錯補償 (FEC)。"
+                ),
+                color=0x2ECC71
+            )
+            return await ctx.respond(embed=embed, ephemeral=True)
+
+        current_kbps = getattr(player, "current_bitrate", None) or guild_settings.get_audio_bitrate(ctx.guild.id)
+        embed = build_quality_embed(ctx.guild, current_kbps)
+        view = QualityControlView(player)
+        await ctx.respond(embed=embed, view=view, ephemeral=True)
+
 def setup(bot: discord.Bot):
     bot.add_cog(MusicCog(bot))
 

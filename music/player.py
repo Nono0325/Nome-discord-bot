@@ -35,7 +35,7 @@ class GuildPlayer:
         self.volume: float = 0.5
         self.loop_mode: str = "off"  # "off", "song", "queue"
         self.autoplay: bool = False   # 無盡推薦電台模式
-        self.current_bitrate: int = 128  # 當前播放音訊位元率 (kbps)
+        self.current_bitrate: int = guild_settings.get_audio_bitrate(guild_id)  # 當前播放音訊位元率 (kbps)
         
         self.text_channel: Optional[discord.TextChannel] = None
         self.player_task: Optional[asyncio.Task] = None
@@ -212,28 +212,30 @@ class GuildPlayer:
                 # 計算該伺服器與語音頻道支援的最高音訊位元率 (kbps)
                 ch_kbps = int(vc.channel.bitrate / 1000) if getattr(vc.channel, "bitrate", None) else 128
                 limit_kbps = int(vc.guild.bitrate_limit / 1000) if hasattr(vc.guild, "bitrate_limit") else ch_kbps
-                target_bitrate = min(512, max(ch_kbps, limit_kbps, 128))
+                preferred_bitrate = guild_settings.get_audio_bitrate(self.guild_id)
+                target_bitrate = max(32, min(preferred_bitrate, ch_kbps, limit_kbps))
                 self.current_bitrate = target_bitrate
 
-                # 若 VoiceClient 已經建立 Opus 編碼器，即時調整至最高音質參數
+                # 動態配置 Opus 編碼器與抗封包遺失補償 (FEC)
+                expected_loss = 0.20 if target_bitrate <= 64 else (0.15 if target_bitrate <= 96 else 0.05)
                 if hasattr(vc, "encoder") and vc.encoder:
                     try:
                         vc.encoder.set_bitrate(target_bitrate)
                         vc.encoder.set_signal_type("music")
                         vc.encoder.set_bandwidth("full")
                         vc.encoder.set_fec(True)
-                        vc.encoder.set_expected_packet_loss_percent(0.05)
+                        vc.encoder.set_expected_packet_loss_percent(expected_loss)
                     except Exception as e_enc:
                         logger.debug(f"設置 Opus 編碼器參數警告: {e_enc}")
 
-                # 以最高音質標準 (OPUS_SIGNAL_MUSIC, OPUS_APPLICATION_AUDIO, fullband, 最大位元率) 播放音訊
+                # 以設定音質標準播放音訊
                 vc.play(
                     source,
                     after=after_playing,
                     application="audio",
                     bitrate=target_bitrate,
                     fec=True,
-                    expected_packet_loss=0.05,
+                    expected_packet_loss=expected_loss,
                     bandwidth="full",
                     signal_type="music"
                 )
@@ -335,6 +337,27 @@ class GuildPlayer:
         self.volume = max(0.0, min(2.0, vol))
         if self.current_source:
             self.current_source.volume = self.volume
+
+    def set_bitrate(self, bitrate_kbps: int) -> int:
+        """即時動態調整當前音訊 Opus 編碼器位元率與抗丟包補償"""
+        vc = self.voice_client
+        ch_kbps = int(vc.channel.bitrate / 1000) if (vc and getattr(vc.channel, "bitrate", None)) else 128
+        limit_kbps = int(vc.guild.bitrate_limit / 1000) if (vc and hasattr(vc.guild, "bitrate_limit")) else ch_kbps
+        real_bitrate = max(32, min(bitrate_kbps, ch_kbps, limit_kbps))
+        self.current_bitrate = real_bitrate
+
+        guild_settings.set_audio_bitrate(self.guild_id, real_bitrate)
+
+        if vc and hasattr(vc, "encoder") and vc.encoder:
+            try:
+                vc.encoder.set_bitrate(real_bitrate)
+                expected_loss = 0.20 if real_bitrate <= 64 else (0.15 if real_bitrate <= 96 else 0.05)
+                vc.encoder.set_expected_packet_loss_percent(expected_loss)
+                vc.encoder.set_fec(True)
+            except Exception as e:
+                logger.debug(f"動態調整 Opus 位元率例外: {e}")
+
+        return real_bitrate
 
 
 class MusicControlView(discord.ui.View):
@@ -459,6 +482,13 @@ class MusicControlView(discord.ui.View):
             f"{msg}\n📚 您目前共收藏了 **{count}** 首歌曲！隨時可在控制台點擊「⭐ 私房收藏」隨機或全部播放。",
             ephemeral=True
         )
+
+    @discord.ui.button(label="音質切換", style=discord.ButtonStyle.secondary, emoji="🎧", row=1)
+    async def change_quality(self, button: discord.ui.Button, interaction: discord.Interaction):
+        from cogs.panel_cog import QualityControlView, build_quality_embed
+        view = QualityControlView(self.player)
+        embed = build_quality_embed(interaction.guild, self.player.current_bitrate)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
     @discord.ui.button(label="停止播放", style=discord.ButtonStyle.danger, emoji="⏹️", row=1)
     async def stop_player(self, button: discord.ui.Button, interaction: discord.Interaction):

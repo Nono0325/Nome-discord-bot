@@ -182,6 +182,79 @@ class VolumeControlView(View):
         await interaction.response.send_message("📢 已將音量調整為 **100% (滿音量)**", ephemeral=True)
 
 
+def build_quality_embed(guild: discord.Guild, current_bitrate: int) -> discord.Embed:
+    """生成音質位元率設定說明 Embed"""
+    vc = guild.voice_client
+    ch_name = vc.channel.name if (vc and vc.channel) else "未加入語音"
+    ch_kbps = int(vc.channel.bitrate / 1000) if (vc and getattr(vc.channel, "bitrate", None)) else 128
+
+    desc = (
+        f"🎧 **目前音訊輸出位元率**：`{current_bitrate} kbps`\n"
+        f"📡 **語音頻道**：`{ch_name}` (頻道上限: `{ch_kbps} kbps`)\n\n"
+        "✦ **音質切換指南（遇到卡頓斷斷續續時建議降低）**：\n"
+        "• 🌟 **320 kbps (極致發燒)**：頂級無損高頻細節，需要優質高速網路。\n"
+        "• 🎵 **128 kbps (高品質)**：CD 級清晰度，音質與流暢的官方推薦平衡。\n"
+        "• ⚖️ **96 kbps (標準平衡)**：Discord 預設，穩定性高，絕不卡頓。\n"
+        "• 🛡️ **64 kbps (弱網防卡)**：啟用強效 20% 封包遺失容錯補償，網路不穩救星！\n"
+        "• ⚡ **48 kbps (極速省流)**：超低流量佔用，極限弱網環境專用。"
+    )
+    embed = discord.Embed(
+        title="🎧 音樂播放音質切換 (Bitrate Control)",
+        description=desc,
+        color=0x3498DB
+    )
+    embed.set_footer(text="點選下方按鈕即可即時動態生效，無需重啟歌曲！")
+    return embed
+
+
+class QualityControlView(View):
+    """音質位元率快捷切換按鈕視圖"""
+
+    def __init__(self, player):
+        super().__init__(timeout=60)
+        self.player = player
+
+    @discord.ui.button(label="🌟 320k 極致", style=discord.ButtonStyle.secondary, row=0)
+    async def q_320(self, button: discord.ui.Button, interaction: discord.Interaction):
+        real_bitrate = self.player.set_bitrate(320)
+        await interaction.response.send_message(
+            f"🌟 已將音質切換為 **{real_bitrate} kbps**！(極致發燒高保真)",
+            ephemeral=True
+        )
+
+    @discord.ui.button(label="🎵 128k 高品質", style=discord.ButtonStyle.secondary, row=0)
+    async def q_128(self, button: discord.ui.Button, interaction: discord.Interaction):
+        real_bitrate = self.player.set_bitrate(128)
+        await interaction.response.send_message(
+            f"🎵 已將音質切換為 **{real_bitrate} kbps**！(官方平衡推薦)",
+            ephemeral=True
+        )
+
+    @discord.ui.button(label="⚖️ 96k 標準 (推薦)", style=discord.ButtonStyle.primary, row=0)
+    async def q_96(self, button: discord.ui.Button, interaction: discord.Interaction):
+        real_bitrate = self.player.set_bitrate(96)
+        await interaction.response.send_message(
+            f"⚖️ 已將音質切換為 **{real_bitrate} kbps**！(最穩定抗抖動，絕不卡頓)",
+            ephemeral=True
+        )
+
+    @discord.ui.button(label="🛡️ 64k 弱網防卡", style=discord.ButtonStyle.success, row=0)
+    async def q_64(self, button: discord.ui.Button, interaction: discord.Interaction):
+        real_bitrate = self.player.set_bitrate(64)
+        await interaction.response.send_message(
+            f"🛡️ 已將音質切換為 **{real_bitrate} kbps**！(已啟用 20% 封包遺失抗卡頓補償)",
+            ephemeral=True
+        )
+
+    @discord.ui.button(label="⚡ 48k 極速", style=discord.ButtonStyle.secondary, row=0)
+    async def q_48(self, button: discord.ui.Button, interaction: discord.Interaction):
+        real_bitrate = self.player.set_bitrate(48)
+        await interaction.response.send_message(
+            f"⚡ 已將音質切換為 **{real_bitrate} kbps**！(極致抗延遲省流)",
+            ephemeral=True
+        )
+
+
 # ==============================================================================
 # 3. 控制面板主視圖 (DashboardView)
 # ==============================================================================
@@ -218,7 +291,7 @@ def build_dashboard_embed(guild: discord.Guild, bot: discord.Bot, category: str 
                 f"{music_status}\n"
                 f"🎙️ **對話緩衝**: {buf_status}\n"
                 f"💾 **自動錄音**: {rec_status}\n"
-                f"🔁 **無盡電台**: {'🟢 開啟' if player.autoplay else '⚪ 關閉'} | 🔊 **音量**: {int(player.volume * 100)}%"
+                f"🔁 **無盡電台**: {'🟢 開啟' if player.autoplay else '⚪ 關閉'} | 🔊 **音量**: {int(player.volume * 100)}% | 🎧 **音質**: {getattr(player, 'current_bitrate', 96)}k"
             ),
             color=0x3498DB
         )
@@ -557,10 +630,13 @@ class DashboardView(View):
         view = VolumeControlView(player)
         await interaction.response.send_message("🔊 請點選您欲設定的音量大小：", view=view, ephemeral=True)
 
-    @discord.ui.button(label="刷新面板", style=discord.ButtonStyle.secondary, emoji="🔄", row=3)
-    async def btn_refresh(self, button: discord.ui.Button, interaction: discord.Interaction):
-        embed = build_dashboard_embed(interaction.guild, interaction.client, category="overview")
-        await interaction.response.edit_message(embed=embed)
+    @discord.ui.button(label="音質切換", style=discord.ButtonStyle.secondary, emoji="🎧", row=3)
+    async def btn_quality(self, button: discord.ui.Button, interaction: discord.Interaction):
+        player = self.bot.voice_manager.get_player(interaction.guild.id)
+        view = QualityControlView(player)
+        current_kbps = getattr(player, "current_bitrate", None) or guild_settings.get_audio_bitrate(interaction.guild.id)
+        embed = build_quality_embed(interaction.guild, current_kbps)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
     # ----------------------------------------------------
     # Row 4: 個人私房收藏與進階工具按鈕
