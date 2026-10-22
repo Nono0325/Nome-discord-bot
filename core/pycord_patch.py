@@ -181,6 +181,34 @@ def apply_pycord_patches():
                 self.waiter.clear()
 
         PacketRouter.run = _patched_run
-        logger.info("已成功套用 Pycord 語音接收熱修復補丁 (Pycord voice-recv patch applied)")
+
+        # 6. 補丁 VoiceConnectionState：強制開啟 DAVE Passthrough 穿透模式，防止 Discord 因端到端加密尚未收斂而全頻道靜音
+        from discord.voice.state import VoiceConnectionState
+        _orig_reinit_dave = VoiceConnectionState.reinit_dave_session
+
+        async def _patched_reinit_dave_session(self):
+            await _orig_reinit_dave(self)
+            if self.dave_session:
+                try:
+                    self.dave_session.set_passthrough_mode(True, 10)
+                    logger.info("已為 DAVE 語音會話啟用 Passthrough 穿透模式，保證音樂播放清晰無阻")
+                except Exception as ex:
+                    logger.debug("啟用 DAVE passthrough 例外: %s", ex)
+
+        VoiceConnectionState.reinit_dave_session = _patched_reinit_dave_session
+
+        _orig_execute_dave_transition = VoiceConnectionState.execute_dave_transition
+
+        async def _patched_execute_dave_transition(self, transition: int):
+            await _orig_execute_dave_transition(self, transition)
+            if self.dave_session:
+                try:
+                    self.dave_session.set_passthrough_mode(True, 10)
+                except Exception:
+                    pass
+
+        VoiceConnectionState.execute_dave_transition = _patched_execute_dave_transition
+
+        logger.info("已成功套用 Pycord 語音接收與 DAVE 穿透修復補丁 (Pycord voice-recv & DAVE passthrough applied)")
     except Exception as e:
         logger.warning(f"套用 Pycord 補丁時發生例外: {e}")

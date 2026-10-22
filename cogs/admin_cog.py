@@ -46,9 +46,13 @@ async def execute_bot_restart(bot: discord.Bot):
     python_exe = sys.executable
     script_path = str(BASE_DIR / "main.py")
 
-    kwargs = {}
+    kwargs = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+    }
     if sys.platform == "win32":
-        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
 
     subprocess.Popen([python_exe, script_path], cwd=str(BASE_DIR), **kwargs)
 

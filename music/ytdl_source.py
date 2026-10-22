@@ -29,9 +29,13 @@ YTDL_OPTIONS: Dict[str, Any] = {
 if COOKIES_TXT_PATH.exists():
     YTDL_OPTIONS["cookiefile"] = str(COOKIES_TXT_PATH)
 
-# FFmpeg 串流播放參數 (增加網路斷線自動重連與大緩衝區，杜絕播放卡頓)
+# FFmpeg 串流播放參數 (增加瀏覽器 User-Agent 與網路斷線自動重連，徹底杜絕 YouTube -10054 斷線與播放無聲)
 FFMPEG_OPTIONS = {
-    "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -reconnect_at_eof 1",
+    "before_options": (
+        '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -reconnect_at_eof 1 '
+        '-reconnect_on_network_error 1 -reconnect_on_http_error 4xx,5xx '
+        '-user_agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"'
+    ),
     "options": "-vn -bufsize 4096k"
 }
 
