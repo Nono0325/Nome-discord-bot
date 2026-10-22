@@ -93,12 +93,14 @@ class GuildPlayer:
 
     def trigger_prefetch(self):
         """[多工處理] 觸發下一首歌曲的背景提前快取與預載"""
-        if self.queue_list and (self.prefetch_task is None or self.prefetch_task.done()):
-            next_song = self.queue_list[0]
-            if not getattr(next_song, "local_filepath", None):
-                self.prefetch_task = self.bot.loop.create_task(
-                    YTDLSource.prefetch_stream(next_song)
-                )
+        vc = self.voice_client
+        if vc and vc.is_playing() and self.queue_list:
+            if self.prefetch_task is None or self.prefetch_task.done():
+                next_song = self.queue_list[0]
+                if not getattr(next_song, "local_filepath", None):
+                    self.prefetch_task = self.bot.loop.create_task(
+                        YTDLSource.prefetch_stream(next_song)
+                    )
 
     def shuffle(self) -> int:
         """[隨機播放] 隨機混洗當前佇列"""

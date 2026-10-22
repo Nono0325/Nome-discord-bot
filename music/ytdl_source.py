@@ -55,7 +55,6 @@ FFMPEG_LOCAL_OPTIONS = {
 FFMPEG_STREAM_OPTIONS = {
     "before_options": (
         '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 '
-        '-http_persistent 0 '
         '-reconnect_on_network_error 1 -reconnect_on_http_error 4xx,5xx '
         '-user_agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"'
     ),
@@ -63,6 +62,15 @@ FFMPEG_STREAM_OPTIONS = {
 }
 
 ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
+
+_DOWNLOAD_LOCKS: Dict[str, asyncio.Lock] = {}
+_LOCK_MUTEX = threading.Lock()
+
+def _get_song_lock(song_id: str) -> asyncio.Lock:
+    with _LOCK_MUTEX:
+        if song_id not in _DOWNLOAD_LOCKS:
+            _DOWNLOAD_LOCKS[song_id] = asyncio.Lock()
+        return _DOWNLOAD_LOCKS[song_id]
 
 def sanitize_song_id(song_id: str) -> str:
     """清理檔名中的特殊字元"""
@@ -96,6 +104,22 @@ def download_song_to_cache(song_url: str, song_id: str) -> Optional[Path]:
     except Exception as e:
         logger.warning(f"本地快取下載失敗 ({song_id}): {e}")
         return None
+
+async def ensure_song_cached(song_url: str, song_id: str) -> Optional[Path]:
+    """
+    非同步安全鎖機制：同一首歌曲在同時間只有單一任務執行下載，杜絕 Windows WinError 32 衝突
+    """
+    clean_id = sanitize_song_id(song_id)
+    lock = _get_song_lock(clean_id)
+    async with lock:
+        cached = find_cached_file(clean_id)
+        if cached:
+            return cached
+
+        loop = asyncio.get_running_loop()
+        cached = await loop.run_in_executor(None, download_song_to_cache, song_url, clean_id)
+        cleanup_cache(max_size_mb=1000)
+        return cached
 
 def cleanup_cache(max_size_mb: int = 1000):
     """自動清理快取目錄，保留最近使用的歌曲，防止磁碟空間超標"""
@@ -230,9 +254,9 @@ class YTDLSource(discord.PCMVolumeTransformer):
                 local_path = str(cached)
                 logger.info(f"⚡ [本地快取] 歌曲《{song.title}》已存在快取，啟動零延遲本地播放！")
             else:
-                # 2. 本地不存在，快速預載 (通常僅需 1~2 秒)
+                # 2. 本地不存在，安全獲取或下載 (同歌曲單一任務，絕不衝突)
                 logger.info(f"📥 [極速下載] 正在將歌曲《{song.title}》快取至本機...")
-                cached = await loop.run_in_executor(None, download_song_to_cache, song.webpage_url, song.id)
+                cached = await ensure_song_cached(song.webpage_url, song.id)
                 if cached:
                     local_path = str(cached)
                     logger.info(f"✅ [快取完成] 歌曲《{song.title}》已就緒，啟動本地極速播放！")
@@ -279,25 +303,15 @@ class YTDLSource(discord.PCMVolumeTransformer):
         """
         if song.is_live:
             return
-        loop = asyncio.get_running_loop()
 
         cached = find_cached_file(song.id)
         if cached:
             song.local_filepath = str(cached)
             return
 
-        def _do_prefetch():
-            try:
-                p = download_song_to_cache(song.webpage_url, song.id)
-                cleanup_cache(max_size_mb=1000)
-                return str(p) if p else None
-            except Exception as e:
-                logger.debug(f"背景提前下載失敗 ({song.title}): {e}")
-                return None
-
-        local = await loop.run_in_executor(None, _do_prefetch)
-        if local:
-            song.local_filepath = local
+        p = await ensure_song_cached(song.webpage_url, song.id)
+        if p:
+            song.local_filepath = str(p)
             logger.info(f"🚀 [提前預載] 下一首歌曲《{song.title}》已在背景完成快取！")
 
     @classmethod
