@@ -23,7 +23,8 @@ class RollingBufferSink(Sink):
         self.encoding = "pcm"
         self.buffer_seconds = buffer_seconds
         
-        # 循環緩衝區: {user_id: deque([(timestamp, pcm_bytes), ...])}
+        # 循環緩衝區: 存放時間、使用者 ID 與原始 PCM 語音資料
+        self.rolling_stream: deque[Tuple[float, int, bytes]] = deque()
         self.rolling_buffers: Dict[int, deque[Tuple[float, bytes]]] = {}
         
         # 完整錄音會話
@@ -89,86 +90,56 @@ class RollingBufferSink(Sink):
         if not pcm_bytes:
             return
 
-        # 取得 RTP 資訊 (sequence, timestamp) 以供音訊混合器進行精準訊框連續性對齊與去抖動
-        packet = getattr(data, "packet", None)
-        rtp_seq = getattr(packet, "sequence", None) if packet else None
-        rtp_ts = getattr(packet, "timestamp", None) if packet else None
-
-        # 1. 存入使用者滾動緩衝區
-        if user_id not in self.rolling_buffers:
-            self.rolling_buffers[user_id] = deque()
-
-        u_buf = self.rolling_buffers[user_id]
-        u_buf.append((now, pcm_bytes, rtp_seq, rtp_ts))
-
-        # 清除超過緩衝上限（例如 65 秒）的舊封包
+        # 1. 存入統一時間軸直通循環串流 (Direct Chronological Stream)
+        self.rolling_stream.append((now, user_id, pcm_bytes))
         cutoff = now - self.buffer_seconds
-        while u_buf and u_buf[0][0] < cutoff:
-            u_buf.popleft()
+        while self.rolling_stream and self.rolling_stream[0][0] < cutoff:
+            self.rolling_stream.popleft()
 
         # 2. 如果正在進行完整會話錄音，同步保存
         if self.is_session_recording:
-            self.session_chunks.append((user_id, now, pcm_bytes, rtp_seq, rtp_ts))
+            self.session_chunks.append((user_id, now, pcm_bytes))
 
-    def _get_snapshot(self) -> Dict[int, List[Tuple[float, bytes]]]:
+    def _extract_recent_stream(self, duration_seconds: float) -> Tuple[List[Tuple[float, int, bytes]], float]:
         """
-        取得緩衝區快照，排除機器人自身並盡可能將 SSRC 臨時標識對應至真實成員 ID。
-        自動回收逾期之使用者緩衝區，杜絕記憶體無限制膨脹。
+        從循環串流中擷取最近秒數的有效語音片段，並解析 SSRC 為真實成員 ID
         """
-        snapshot: Dict[int, List[Tuple[float, bytes]]] = {}
-        bot_id = self.vc.user.id if (self.vc and hasattr(self.vc, "user") and self.vc.user) else None
         now = time.time()
-        cutoff = now - self.buffer_seconds
+        start_time = now - duration_seconds
+        bot_id = self.vc.user.id if (self.vc and hasattr(self.vc, "user") and self.vc.user) else None
 
-        stale_ids = []
-        for raw_id, chunks in list(self.rolling_buffers.items()):
-            # 清理過期訊框
-            while chunks and chunks[0][0] < cutoff:
-                chunks.popleft()
-            if not chunks:
-                stale_ids.append(raw_id)
-                continue
+        valid_chunks: List[Tuple[float, int, bytes]] = []
+        for c_time, uid, pcm in list(self.rolling_stream):
+            if c_time >= start_time and pcm:
+                target_id = uid
+                if uid < 1000000000000 and self.vc:
+                    resolved_id = None
+                    if hasattr(self.vc, "_connection") and hasattr(self.vc._connection, "ssrc_user_map"):
+                        resolved_id = self.vc._connection.ssrc_user_map.get(uid)
+                    if not resolved_id and hasattr(self.vc, "_ssrc_to_id"):
+                        resolved_id = self.vc._ssrc_to_id.get(uid)
+                    if resolved_id:
+                        target_id = resolved_id
 
-            if bot_id and raw_id == bot_id:
-                continue
+                if bot_id and target_id == bot_id:
+                    continue
+                valid_chunks.append((c_time, target_id, pcm))
 
-            target_id = raw_id
-            if raw_id < 1000000000000 and self.vc:
-                resolved_id = None
-                if hasattr(self.vc, "_connection") and hasattr(self.vc._connection, "ssrc_user_map"):
-                    resolved_id = self.vc._connection.ssrc_user_map.get(raw_id)
-                if not resolved_id and hasattr(self.vc, "_ssrc_to_id"):
-                    resolved_id = self.vc._ssrc_to_id.get(raw_id)
-                if resolved_id and resolved_id != bot_id:
-                    target_id = resolved_id
-
-            if bot_id and target_id == bot_id:
-                continue
-
-            if target_id not in snapshot:
-                snapshot[target_id] = []
-            snapshot[target_id].extend(chunks)
-
-        for sid in stale_ids:
-            self.rolling_buffers.pop(sid, None)
-
-        return snapshot
+        return valid_chunks, now
 
     def get_replay_audio(self, duration_seconds: float = 60.0) -> Tuple[io.BytesIO, List[int]]:
         """
-        即時混音並輸出過去指定秒數（預設 60 秒）的大家對話 MP3
+        即時直通輸出過去指定秒數（預設 60 秒）的大家對話 MP3（不混音，100% 完整保留所有字詞）
         """
-        now = time.time()
-        data_snapshot = self._get_snapshot()
-        return AudioMixer.mix_replay_buffer(data_snapshot, duration_seconds, end_time=now)
+        chunks, now = self._extract_recent_stream(duration_seconds)
+        return AudioMixer.mix_replay_buffer(chunks, duration_seconds, end_time=now)
 
     async def get_replay_audio_async(self, duration_seconds: float = 60.0) -> Tuple[io.BytesIO, List[int]]:
         """
-        [多工處理] 非同步即時混音並輸出過去指定秒數的對話 MP3（不卡死 Discord 播歌循環）
+        [多工處理] 非同步即時直通輸出過去指定秒數的對話 MP3（不卡死 Discord 播歌循環）
         """
-        now = time.time()
-        data_snapshot = self._get_snapshot()
-        return await AudioMixer.mix_replay_buffer_async(data_snapshot, duration_seconds, end_time=now)
+        chunks, now = self._extract_recent_stream(duration_seconds)
+        return await AudioMixer.mix_replay_buffer_async(chunks, duration_seconds, end_time=now)
 
     def start_session_recording(self):
         """

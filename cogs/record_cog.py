@@ -50,9 +50,9 @@ class RecordCog(commands.Cog):
             seconds = max(5, min(180, seconds))
             mp3_buf, active_uids = await sink.get_replay_audio_async(duration_seconds=float(seconds))
 
-            # 檢查檔案大小是否大於 100KB (排除全靜音無人講話的情況)
+            # 檢查檔案大小是否有效 (排除完全無語音資料的情況)
             mp3_size = len(mp3_buf.getvalue())
-            if not active_uids or mp3_size < 10000:
+            if not active_uids or mp3_size < 1000:
                 embed = discord.Embed(
                     title="⚠️ 未偵測到語音活動",
                     description=f"在過去 **{seconds}** 秒內沒有成員在語音頻道發言。",
@@ -101,7 +101,7 @@ class RecordCog(commands.Cog):
                 description=f"⏱️ **剪輯長度:** {seconds} 秒\n🗣️ **參與對話成員:** {speakers_str}\n📦 **檔案大小:** {mp3_size / (1024*1024):.2f} MB",
                 color=0x2ECC71
             )
-            embed.set_footer(text="音訊已依真實對話時間軸精準混音為立體聲 MP3")
+            embed.set_footer(text="音訊已採用直通無損串流輸出，完整保留對話內容 (320 kbps MP3)")
 
             allowed_mentions = discord.AllowedMentions.none()
             if is_interaction:

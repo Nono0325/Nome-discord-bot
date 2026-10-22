@@ -270,7 +270,12 @@ def run():
         print("!" * 60 + "\n")
         sys.exit(1)
 
-    bot.run(DISCORD_TOKEN)
+    try:
+        bot.run(DISCORD_TOKEN)
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("機器人程序已優雅關閉。")
+    except Exception as e:
+        logger.error(f"機器人執行期間發生未預期錯誤: {e}")
 
 if __name__ == "__main__":
     run()

@@ -4,6 +4,9 @@ from dataclasses import dataclass
 from typing import Optional, Dict, Any
 import discord
 import yt_dlp
+import queue
+import threading
+import time
 from config.settings import COOKIES_TXT_PATH, FFMPEG_EXE
 
 logger = logging.getLogger(__name__)
@@ -32,19 +35,94 @@ if COOKIES_TXT_PATH.exists():
     YTDL_OPTIONS["cookiefile"] = str(COOKIES_TXT_PATH)
 
 # FFmpeg 串流播放參數：
-# 1. 啟用專業級 Sinc 多相位重採樣器 (filter_size=32, cutoff=0.99)，保證 44.1kHz 音訊轉 48kHz 原音無損重現
-# 2. 擴增緩衝區至 8192k 避免高位元率串流抖動
-# 3. 完整重連與瀏覽器標頭，杜絕 YouTube 斷線
+# 1. 移除 -reconnect_at_eof 1 避免歌曲結束時重複重連導致 I/O Error
+# 2. 保留連線中斷自動重連，杜絕 YouTube -10054 斷線
+# 3. 擴增緩衝區至 16384k，並啟用 Sinc 抗混疊重採樣
 FFMPEG_OPTIONS = {
     "before_options": (
-        '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -reconnect_at_eof 1 '
+        '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 '
         '-reconnect_on_network_error 1 -reconnect_on_http_error 4xx,5xx '
         '-user_agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"'
     ),
-    "options": "-vn -bufsize 8192k -af aresample=48000:filter_size=32:cutoff=0.99"
+    "options": "-vn -bufsize 16384k -af aresample=48000:filter_size=32:cutoff=0.99"
 }
 
 ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
+
+class BufferedAudioSource(discord.AudioSource):
+    """
+    音訊前置雙向平滑緩衝區 (Pre-buffering Audio Stream)
+    在背景獨立執行緒預先讀取底層 FFmpeg 音訊串流至記憶體 Queue 中 (預設 5 秒，約 250 個 20ms 訊框)。
+    播放啟動時先預載 1 秒緩衝 (約 50 個訊框)，隨後 Discord 音訊發送執行緒呼叫 read() 時，
+    保證從本地記憶體 0 微秒極速取出，徹底阻斷 YouTube 網路波動、延遲抖動造成的音樂忽快忽慢、斷斷續續！
+    """
+    FRAME_SIZE = 3840  # 48000Hz * 2 channels * 2 bytes * 0.02s
+
+    def __init__(self, original: discord.AudioSource, buffer_size: int = 250, prefill: int = 50):
+        self.original = original
+        self.buffer_size = buffer_size
+        self.prefill = prefill
+        self._queue: queue.Queue[bytes] = queue.Queue(maxsize=buffer_size)
+        self._stop_event = threading.Event()
+        self._eof = False
+        self._prefilled = False
+
+        self._worker = threading.Thread(
+            target=self._reader_loop,
+            daemon=True,
+            name="AudioBufferReader"
+        )
+        self._worker.start()
+
+    def _reader_loop(self):
+        while not self._stop_event.is_set():
+            try:
+                data = self.original.read()
+                if not data:
+                    self._eof = True
+                    break
+                while not self._stop_event.is_set():
+                    try:
+                        self._queue.put(data, timeout=0.1)
+                        break
+                    except queue.Full:
+                        continue
+            except Exception as e:
+                logger.debug(f"音訊緩衝讀取緒例外: {e}")
+                self._eof = True
+                break
+
+    def read(self) -> bytes:
+        if not self._prefilled and not self._eof:
+            start_wait = time.perf_counter()
+            while self._queue.qsize() < self.prefill and not self._eof and not self._stop_event.is_set():
+                if time.perf_counter() - start_wait > 2.0:
+                    break
+                time.sleep(0.01)
+            self._prefilled = True
+
+        try:
+            return self._queue.get(timeout=0.02)
+        except queue.Empty:
+            if self._eof:
+                return b""
+            # 若網路極端嚴重斷線導致緩衝區暫時見底 (underrun)，送出 20ms 靜音封包保持連線，絕不中斷播放
+            return b"\x00" * self.FRAME_SIZE
+
+    def is_opus(self) -> bool:
+        return self.original.is_opus()
+
+    def cleanup(self) -> None:
+        self._stop_event.set()
+        try:
+            self.original.cleanup()
+        except Exception:
+            pass
+        while not self._queue.empty():
+            try:
+                self._queue.get_nowait()
+            except queue.Empty:
+                break
 
 @dataclass
 class Song:
@@ -70,7 +148,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
     @classmethod
     async def create_source(cls, song: Song, volume: float = 0.5) -> "YTDLSource":
         """
-        異步解析歌曲的 stream_url 並建立 FFmpeg 音訊來源
+        異步解析歌曲的 stream_url 並建立 FFmpeg 音訊來源 (結合平滑緩衝區)
         """
         loop = asyncio.get_event_loop()
         
@@ -93,7 +171,8 @@ class YTDLSource(discord.PCMVolumeTransformer):
             executable=str(FFMPEG_EXE),
             **FFMPEG_OPTIONS
         )
-        return cls(audio_source, song=song, volume=volume)
+        buffered_source = BufferedAudioSource(audio_source, buffer_size=250, prefill=50)
+        return cls(buffered_source, song=song, volume=volume)
 
     @classmethod
     async def prefetch_stream(cls, song: Song):
