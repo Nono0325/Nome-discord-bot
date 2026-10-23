@@ -207,8 +207,50 @@ def apply_pycord_patches():
                 except Exception:
                     pass
 
-        VoiceConnectionState.execute_dave_transition = _patched_execute_dave_transition
+        # 7. 補丁 VoiceClient.disconnect：保證 cleanup() 與 _remove_voice_client 必然執行，徹底根除 ClientException: Already connected
+        from discord.voice.client import VoiceClient
+        _orig_vc_disconnect = VoiceClient.disconnect
 
-        logger.info("已成功套用 Pycord 語音接收與 DAVE 穿透修復補丁 (Pycord voice-recv & DAVE passthrough applied)")
+        async def _patched_vc_disconnect(self, *, force: bool = False) -> None:
+            try:
+                await _orig_vc_disconnect(self, force=force)
+            finally:
+                try:
+                    self.cleanup()
+                except Exception:
+                    pass
+                try:
+                    if hasattr(self, "channel") and self.channel:
+                        key, _ = self.channel._get_voice_client_key()
+                        self.client._connection._remove_voice_client(key)
+                except Exception:
+                    pass
+
+        VoiceClient.disconnect = _patched_vc_disconnect
+
+        # 8. 補丁 Connectable.connect：若目標伺服器已有舊的未連線殘留物件，自動移除並清理，防止拋出 Already connected
+        from discord.abc import Connectable
+        _orig_connect = Connectable.connect
+
+        async def _patched_connect(self, *, timeout: float = 60.0, reconnect: bool = True, cls=discord.utils.MISSING):
+            key_id, _ = self._get_voice_client_key()
+            existing = self._state._get_voice_client(key_id)
+            if existing is not None:
+                if not existing.is_connected():
+                    # 舊連線已失效或未連線，強制清理並移除
+                    try:
+                        await existing.disconnect(force=True)
+                    except Exception:
+                        pass
+                    try:
+                        existing.cleanup()
+                    except Exception:
+                        pass
+                    self._state._remove_voice_client(key_id)
+            return await _orig_connect(self, timeout=timeout, reconnect=reconnect, cls=cls)
+
+        Connectable.connect = _patched_connect
+
+        logger.info("已成功套用 Pycord 語音接收、DAVE 穿透與語音連線防卡死修復補丁 (Pycord patches applied)")
     except Exception as e:
         logger.warning(f"套用 Pycord 補丁時發生例外: {e}")

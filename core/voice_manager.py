@@ -63,20 +63,35 @@ class VoiceManager:
                     await vc.disconnect(force=True)
                 except Exception:
                     pass
+                try:
+                    vc.cleanup()
+                except Exception:
+                    pass
+                if hasattr(voice_channel, "_state"):
+                    voice_channel._state._remove_voice_client(guild.id)
                 await asyncio.sleep(0.5)
+
+            if hasattr(voice_channel, "_state"):
+                voice_channel._state._remove_voice_client(guild.id)
 
             try:
                 vc = await voice_channel.connect(timeout=45.0, reconnect=True)
             except discord.ClientException as e:
                 # 若 Pycord 內部殘留已連線標記，強制清理並重試
                 logger.warning(f"語音初次連線遭遇標記衝突 ({e})，正在執行深度重置並重試...")
+                if hasattr(voice_channel, "_state"):
+                    voice_channel._state._remove_voice_client(guild.id)
                 if guild.voice_client:
                     try:
                         await guild.voice_client.disconnect(force=True)
                     except Exception:
                         pass
-                if hasattr(guild, "_voice_state"):
-                    guild._voice_state = None
+                    try:
+                        guild.voice_client.cleanup()
+                    except Exception:
+                        pass
+                if hasattr(voice_channel, "_state"):
+                    voice_channel._state._remove_voice_client(guild.id)
                 await asyncio.sleep(1.0)
                 vc = await voice_channel.connect(timeout=45.0, reconnect=True)
 
