@@ -43,7 +43,7 @@ class VoiceManager:
         vc = guild.voice_client
 
         if vc and vc.is_connected():
-            if vc.channel.id != voice_channel.id:
+            if vc.channel and vc.channel.id != voice_channel.id:
                 if vc.is_recording():
                     try:
                         vc.stop_recording()
@@ -52,7 +52,33 @@ class VoiceManager:
                 await vc.move_to(voice_channel)
                 await asyncio.sleep(0.5)
         else:
-            vc = await voice_channel.connect(timeout=60.0, reconnect=True)
+            # 處理斷線中、半中斷或殘留之殭屍連線，先進行強制清理
+            if vc is not None:
+                try:
+                    if vc.is_recording():
+                        vc.stop_recording()
+                except Exception:
+                    pass
+                try:
+                    await vc.disconnect(force=True)
+                except Exception:
+                    pass
+                await asyncio.sleep(0.5)
+
+            try:
+                vc = await voice_channel.connect(timeout=45.0, reconnect=True)
+            except discord.ClientException as e:
+                # 若 Pycord 內部殘留已連線標記，強制清理並重試
+                logger.warning(f"語音初次連線遭遇標記衝突 ({e})，正在執行深度重置並重試...")
+                if guild.voice_client:
+                    try:
+                        await guild.voice_client.disconnect(force=True)
+                    except Exception:
+                        pass
+                if hasattr(guild, "_voice_state"):
+                    guild._voice_state = None
+                await asyncio.sleep(1.0)
+                vc = await voice_channel.connect(timeout=45.0, reconnect=True)
 
         # 自動檢查並將語音頻道音質升級為該伺服器所支援之最高位元率 (若具備管理頻道權限)
         try:
@@ -70,7 +96,8 @@ class VoiceManager:
             player.text_channel = text_channel
 
         # 啟動語音接收器（維護前一分鐘緩衝區與自動錄音）
-        if not vc.is_recording():
+        # 關鍵保護：必須確認 vc 已成功建立連線且非錄音中，杜絕 RecordingException: not connected to a voice channel
+        if vc and vc.is_connected() and not vc.is_recording():
             sink = RollingBufferSink(
                 buffer_seconds=float(REPLAY_BUFFER_SECONDS + 10),
                 auto_record=self.auto_record,
@@ -108,7 +135,10 @@ class VoiceManager:
                     vc.stop_recording()
                 except Exception:
                     pass
-            await vc.disconnect()
+            try:
+                await vc.disconnect(force=True)
+            except Exception as ex:
+                logger.debug(f"斷開語音連線跳過: {ex}")
 
         # 若有正在錄音的會話，自動混音輸出 MP3 並上傳至文字頻道
         if guild_id in self.sinks:

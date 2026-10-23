@@ -52,7 +52,8 @@ async def execute_bot_restart(bot: discord.Bot):
         "stderr": subprocess.DEVNULL,
     }
     if sys.platform == "win32":
-        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+        # 加上 CREATE_BREAKAWAY_FROM_JOB (0x01000000)，確保脫離父進程 Job Object 限制
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS | 0x01000000
 
     subprocess.Popen([python_exe, script_path], cwd=str(BASE_DIR), **kwargs)
 
