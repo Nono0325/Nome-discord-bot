@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nome Bot 控制與即時監控台 | Discord Control Console</title>
+    <meta name="description" content="Discord 語音音樂與原音錄音機器人即時視覺化控制監控台，支援音樂播控、60秒對話回放剪輯與串流日誌。">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    
+    <!-- Custom Stylesheet -->
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <!-- Background Ambient Glows -->
+    <div class="ambient-glow glow-1"></div>
+    <div class="ambient-glow glow-2"></div>
+    <div class="ambient-glow glow-3"></div>
+
+    <div class="app-layout">
+        <!-- Top Navigation Header -->
+        <header class="app-header">
+            <div class="header-brand">
+                <div class="bot-avatar-wrapper">
+                    <img id="bot-avatar" src="https://cdn.discordapp.com/embed/avatars/0.png" alt="Bot Avatar" class="bot-avatar">
+                    <span id="bot-status-dot" class="status-indicator online"></span>
+                </div>
+                <div class="bot-info">
+                    <h1 id="bot-name" class="bot-title">Nome Bot</h1>
+                    <div class="bot-tags">
+                        <span id="bot-id-tag" class="badge badge-id">ID: --</span>
+                        <span id="bot-online-badge" class="badge badge-success"><i class="fa-solid fa-circle-check"></i> 正常運作中</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Header Quick Metrics -->
+            <div class="header-metrics">
+                <div class="metric-pill" title="Gateway WebSocket 延遲">
+                    <i class="fa-solid fa-wifi text-accent"></i>
+                    <span class="metric-label">延遲</span>
+                    <span id="header-ping" class="metric-val text-success">-- ms</span>
+                </div>
+                <div class="metric-pill" title="機器人連續運作時間">
+                    <i class="fa-solid fa-stopwatch text-accent"></i>
+                    <span class="metric-label">運行</span>
+                    <span id="header-uptime" class="metric-val">--</span>
+                </div>
+                <div class="metric-pill" title="記憶體占用 (RSS)">
+                    <i class="fa-solid fa-microchip text-accent"></i>
+                    <span class="metric-label">記憶體</span>
+                    <span id="header-mem" class="metric-val">-- MB</span>
+                </div>
+            </div>
+
+            <!-- Header Quick Actions -->
+            <div class="header-actions">
+                <button id="btn-quick-reload" class="btn btn-secondary btn-sm" title="動態熱重載所有模組 (不中斷語音)">
+                    <i class="fa-solid fa-arrows-rotate"></i> <span>熱重載</span>
+                </button>
+                <button id="btn-quick-restart" class="btn btn-danger btn-sm" title="完全重新啟動機器人主進程">
+                    <i class="fa-solid fa-power-off"></i> <span>重啟</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Navigation Tabs Bar -->
+        <nav class="nav-tabs" role="tablist">
+            <button class="nav-tab active" data-tab="tab-overview" id="nav-overview" role="tab">
+                <i class="fa-solid fa-chart-pie"></i> 總覽監控
+            </button>
+            <button class="nav-tab" data-tab="tab-music" id="nav-music" role="tab">
+                <i class="fa-solid fa-music"></i> 音樂播控中心
+            </button>
+            <button class="nav-tab" data-tab="tab-recording" id="nav-recording" role="tab">
+                <i class="fa-solid fa-microphone-lines"></i> 語音錄音與回放
+            </button>
+            <button class="nav-tab" data-tab="tab-logs" id="nav-logs" role="tab">
+                <i class="fa-solid fa-terminal"></i> 即時系統日誌
+            </button>
+            <button class="nav-tab" data-tab="tab-guilds" id="nav-guilds" role="tab">
+                <i class="fa-solid fa-server"></i> 伺服器與頻道
+            </button>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="app-main">
+
+            <!-- ========================================================= -->
+            <!-- TAB 1: 總覽與監控儀表板 (Overview) -->
+            <!-- ========================================================= -->
+            <section id="tab-overview" class="tab-pane active">
+                <!-- Key Stats Metric Cards -->
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon icon-purple"><i class="fa-solid fa-tower-broadcast"></i></div>
+                        <div class="stat-content">
+                            <span class="stat-title">Gateway 延遲</span>
+                            <h3 id="stat-ping" class="stat-number">-- ms</h3>
+                            <span class="stat-desc text-success"><i class="fa-solid fa-circle"></i> WebSocket 保持暢通</span>
+                        </div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div class="stat-icon icon-blue"><i class="fa-solid fa-clock-rotate-left"></i></div>
+                        <div class="stat-content">
+                            <span class="stat-title">連續運行時間</span>
+                            <h3 id="stat-uptime" class="stat-number">--</h3>
+                            <span class="stat-desc text-muted" id="stat-uptime-sec">0 秒</span>
+                        </div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div class="stat-icon icon-green"><i class="fa-solid fa-headphones-simple"></i></div>
+                        <div class="stat-content">
+                            <span class="stat-title">活躍語音連線</span>
+                            <h3 id="stat-voice-count" class="stat-number">--</h3>
+                            <span class="stat-desc text-muted">連線頻道中</span>
+                        </div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div class="stat-icon icon-orange"><i class="fa-solid fa-compact-disc"></i></div>
+                        <div class="stat-content">
+                            <span class="stat-title">正在播放音樂</span>
+                            <h3 id="stat-playing-count" class="stat-number">--</h3>
+                            <span class="stat-desc text-muted">台伺服器播歌中</span>
+                        </div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div class="stat-icon icon-red"><i class="fa-solid fa-circle-dot"></i></div>
+                        <div class="stat-content">
+                            <span class="stat-title">循環錄音緩衝</span>
+                            <h3 id="stat-buffer-status" class="stat-number">60s</h3>
+                            <span class="stat-desc text-success"><i class="fa-solid fa-shield-halved"></i> 隨時支援 /clip 擷取</span>
+                        </div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div class="stat-icon icon-indigo"><i class="fa-solid fa-server"></i></div>
+                        <div class="stat-content">
+                            <span class="stat-title">託管伺服器</span>
+                            <h3 id="stat-guilds-count" class="stat-number">--</h3>
+                            <span class="stat-desc text-muted">個 Discord 群組</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Overview Grid: Active Voice Sessions & System Info -->
+                <div class="overview-panels-grid">
+                    <div class="glass-panel">
+                        <div class="panel-header">
+                            <h3 class="panel-title"><i class="fa-solid fa-satellite-dish text-accent"></i> 活躍語音與音樂連線</h3>
+                            <span id="active-voice-badge" class="badge badge-primary">0 個活躍頻道</span>
+                        </div>
+                        <div id="overview-voice-list" class="voice-sessions-list">
+                            <div class="empty-placeholder">
+                                <i class="fa-solid fa-volume-xmark"></i>
+                                <p>目前機器人尚未加入任何語音頻道</p>
+                                <button class="btn btn-primary btn-sm" onclick="switchTab('tab-guilds')">前往選擇伺服器與頻道加入</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="glass-panel">
+                        <div class="panel-header">
+                            <h3 class="panel-title"><i class="fa-solid fa-sliders text-accent"></i> 系統多工核心健康指標</h3>
+                        </div>
+                        <div class="system-specs-list">
+                            <div class="spec-row">
+                                <span class="spec-label"><i class="fa-solid fa-lines-leaning"></i> 活動執行緒 (Threads)</span>
+                                <span id="spec-threads" class="spec-val badge badge-secondary">-- 緒</span>
+                            </div>
+                            <div class="spec-row">
+                                <span class="spec-label"><i class="fa-solid fa-memory"></i> 記憶體使用 (Memory)</span>
+                                <span id="spec-memory" class="spec-val badge badge-secondary">-- MB</span>
+                            </div>
+                            <div class="spec-row">
+                                <span class="spec-label"><i class="fa-brands fa-python"></i> Python 執行環境</span>
+                                <span id="spec-python" class="spec-val badge badge-secondary">--</span>
+                            </div>
+                            <div class="spec-row">
+                                <span class="spec-label"><i class="fa-solid fa-shield"></i> DAVE E2EE 端到端加密</span>
+                                <span class="spec-val badge badge-success"><i class="fa-solid fa-check"></i> Passthrough 穿透正常</span>
+                            </div>
+                            <div class="spec-row">
+                                <span class="spec-label"><i class="fa-solid fa-file-waveform"></i> 全場自動錄音 (Auto-Record)</span>
+                                <span id="spec-autorecord" class="spec-val badge badge-success">已啟用</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ========================================================= -->
+            <!-- TAB 2: 音樂播控中心 (Music Controller) -->
+            <!-- ========================================================= -->
+            <section id="tab-music" class="tab-pane">
+                <div class="guild-selector-bar">
+                    <label for="music-guild-select" class="guild-select-label">
+                        <i class="fa-solid fa-server"></i> 選擇要控制的伺服器：
+                    </label>
+                    <select id="music-guild-select" class="select-input">
+                        <option value="">載入伺服器清單中...</option>
+                    </select>
+                </div>
+
+                <div class="music-layout-grid">
+                    <!-- Left Column: Now Playing Hero Glass Card -->
+                    <div class="glass-panel now-playing-panel">
+                        <div class="vinyl-container">
+                            <div id="vinyl-disc" class="vinyl-disc">
+                                <img id="nowplaying-thumb" src="https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?w=500&auto=format&fit=crop&q=80" alt="Album Cover" class="album-art">
+                                <div class="vinyl-center"></div>
+                            </div>
+                        </div>
+
+                        <div class="track-details">
+                            <span id="nowplaying-status" class="track-state-badge badge-idle">閒置中</span>
+                            <h2 id="nowplaying-title" class="track-title">目前未在播放音樂</h2>
+                            <p id="nowplaying-artist" class="track-artist">選取歌曲或於下方輸入搜尋以開始播放</p>
+                            <span id="nowplaying-requester" class="track-requester">點播者: --</span>
+                        </div>
+
+                        <!-- Track Progress Bar -->
+                        <div class="progress-section">
+                            <div class="progress-bar-container" id="progress-container">
+                                <div id="progress-bar-fill" class="progress-bar-fill" style="width: 0%;"></div>
+                            </div>
+                            <div class="time-display">
+                                <span id="time-current">00:00</span>
+                                <span id="time-duration">00:00</span>
+                            </div>
+                        </div>
+
+                        <!-- Player Controls Bar -->
+                        <div class="player-controls">
+                            <button id="btn-shuffle" class="control-btn" title="隨機混洗清單"><i class="fa-solid fa-shuffle"></i></button>
+                            <button id="btn-stop" class="control-btn control-btn-danger" title="停止播放並清空"><i class="fa-solid fa-stop"></i></button>
+                            <button id="btn-play-pause" class="control-btn control-btn-primary" title="播放 / 暫停"><i class="fa-solid fa-play"></i></button>
+                            <button id="btn-skip" class="control-btn" title="跳過下一首 (Skip)"><i class="fa-solid fa-forward-step"></i></button>
+                            <button id="btn-loop" class="control-btn" title="切換循環 (關閉 / 單曲 / 清單)"><i class="fa-solid fa-repeat"></i></button>
+                            <button id="btn-autoplay" class="control-btn" title="無盡電台自動推薦"><i class="fa-solid fa-radio"></i></button>
+                        </div>
+
+                        <!-- Volume Slider -->
+                        <div class="volume-container">
+                            <i id="volume-icon" class="fa-solid fa-volume-high volume-icon"></i>
+                            <input type="range" id="volume-slider" min="0" max="100" value="100" class="volume-slider" title="調整音量">
+                            <span id="volume-text" class="volume-value">100%</span>
+                        </div>
+                    </div>
+
+                    <!-- Right Column: Add Song Bar & Upcoming Queue -->
+                    <div class="queue-panel-wrapper">
+                        <!-- Add Song Form -->
+                        <div class="glass-panel add-song-panel">
+                            <h3 class="panel-title"><i class="fa-solid fa-plus text-accent"></i> 搜尋音樂或輸入網址</h3>
+                            <form id="form-add-song" class="add-song-form" onsubmit="return false;">
+                                <div class="input-group">
+                                    <i class="fa-solid fa-magnifying-glass input-icon"></i>
+                                    <input type="text" id="input-song-query" class="text-input" placeholder="輸入歌曲名稱、YouTube 網址、YouTube Music 連結..." required>
+                                </div>
+                                <button type="submit" id="btn-submit-song" class="btn btn-primary">
+                                    <i class="fa-solid fa-play"></i> 點播
+                                </button>
+                            </form>
+                        </div>
+
+                        <!-- Queue List Panel -->
+                        <div class="glass-panel queue-list-panel">
+                            <div class="panel-header">
+                                <h3 class="panel-title"><i class="fa-solid fa-list-ol text-accent"></i> 即將播放佇列 (Queue)</h3>
+                                <span id="queue-count-badge" class="badge badge-secondary">0 首歌曲</span>
+                            </div>
+                            <div id="queue-items-container" class="queue-items-list">
+                                <div class="empty-placeholder">
+                                    <i class="fa-solid fa-music"></i>
+                                    <p>目前佇列中沒有排隊的歌曲</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ========================================================= -->
+            <!-- TAB 3: 語音錄音與對話回放 (Recording & Clips) -->
+            <!-- ========================================================= -->
+            <section id="tab-recording" class="tab-pane">
+                <div class="recording-hero glass-panel">
+                    <div class="recording-indicator-box">
+                        <div class="rec-pulse-circle">
+                            <i class="fa-solid fa-microphone-lines"></i>
+                        </div>
+                        <div class="rec-meta">
+                            <div class="rec-title-row">
+                                <h2 class="rec-headline">語音對話即時錄音緩衝系統</h2>
+                                <span id="rec-live-badge" class="badge badge-danger"><i class="fa-solid fa-circle"></i> 60秒時光機待命中</span>
+                            </div>
+                            <p class="rec-desc">採用時間軸無損串流封裝，100% 完整還原頻道中所有成員之聲音細節。隨時點擊下方即可截取對話剪輯！</p>
+                        </div>
+                    </div>
+
+                    <!-- Active Speakers in last 60 seconds -->
+                    <div class="speakers-section">
+                        <h4 class="speakers-title"><i class="fa-solid fa-users-viewfinder text-accent"></i> 最近 60 秒發言成員：</h4>
+                        <div id="speakers-chips-container" class="speakers-chips-grid">
+                            <span class="chip chip-empty">近 60 秒無人發言</span>
+                        </div>
+                    </div>
+
+                    <!-- Instant Replay Clip Generator -->
+                    <div class="clip-generator-box">
+                        <h3 class="generator-title"><i class="fa-solid fa-scissors text-accent"></i> 一鍵擷取前一分鐘精彩對話 (Instant Replay Clip)</h3>
+                        <p class="generator-subtitle">選擇回溯秒數，系統將立即將多軌對話混合並匯出高品質 MP3：</p>
+                        <div class="clip-buttons-bar">
+                            <button class="btn btn-secondary btn-clip" onclick="generateClip(15)"><i class="fa-solid fa-bolt"></i> 前 15 秒</button>
+                            <button class="btn btn-secondary btn-clip" onclick="generateClip(30)"><i class="fa-solid fa-bolt"></i> 前 30 秒</button>
+                            <button class="btn btn-primary btn-clip" onclick="generateClip(60)"><i class="fa-solid fa-star"></i> 前 60 秒 (推薦)</button>
+                            <button class="btn btn-secondary btn-clip" onclick="generateClip(120)"><i class="fa-solid fa-clock-rotate-left"></i> 前 120 秒 (2分)</button>
+                        </div>
+
+                        <!-- Clip Result Audio Preview Box -->
+                        <div id="clip-preview-box" class="clip-preview-card" style="display: none;">
+                            <div class="clip-preview-header">
+                                <span class="badge badge-success"><i class="fa-solid fa-circle-check"></i> 剪輯成功！</span>
+                                <span id="clip-file-name" class="clip-filename">clip.mp3</span>
+                            </div>
+                            <audio id="clip-audio-player" controls class="clip-player"></audio>
+                            <div class="clip-preview-actions">
+                                <a id="clip-download-link" href="#" download="clip.mp3" class="btn btn-primary btn-sm">
+                                    <i class="fa-solid fa-download"></i> 下載此音訊檔
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Saved Recordings Manager -->
+                <div class="glass-panel recordings-table-panel">
+                    <div class="panel-header">
+                        <h3 class="panel-title"><i class="fa-solid fa-folder-open text-accent"></i> 本機已存檔完整錄音檔案 (`recordings/`)</h3>
+                        <button class="btn btn-secondary btn-sm" onclick="loadRecordingsList()"><i class="fa-solid fa-rotate"></i> 重新整理</button>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>檔案名稱</th>
+                                    <th>檔案大小</th>
+                                    <th>錄製存檔時間</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recordings-tbody">
+                                <tr>
+                                    <td colspan="4" class="text-center text-muted">正在載入錄音清單...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ========================================================= -->
+            <!-- TAB 4: 即時系統日誌 (Live System Logs) -->
+            <!-- ========================================================= -->
+            <section id="tab-logs" class="tab-pane">
+                <div class="terminal-card glass-panel">
+                    <!-- Terminal Top Toolbar -->
+                    <div class="terminal-toolbar">
+                        <div class="terminal-dots">
+                            <span class="dot dot-red"></span>
+                            <span class="dot dot-yellow"></span>
+                            <span class="dot dot-green"></span>
+                            <span class="terminal-title">logs/bot.log — 即時串流監控 (SSE Stream)</span>
+                        </div>
+                        <div class="terminal-controls">
+                            <!-- Filter Level Buttons -->
+                            <div class="filter-pills">
+                                <button class="filter-pill active" data-filter="ALL" onclick="filterLogs('ALL')">全部</button>
+                                <button class="filter-pill" data-filter="INFO" onclick="filterLogs('INFO')">INFO</button>
+                                <button class="filter-pill" data-filter="WARNING" onclick="filterLogs('WARNING')">WARN</button>
+                                <button class="filter-pill" data-filter="ERROR" onclick="filterLogs('ERROR')">ERROR</button>
+                            </div>
+                            <div class="search-box">
+                                <i class="fa-solid fa-search"></i>
+                                <input type="text" id="log-search-input" placeholder="搜尋日誌內容..." oninput="handleLogSearch(this.value)">
+                            </div>
+                            <label class="checkbox-label" title="自動捲動到最底部">
+                                <input type="checkbox" id="chk-autoscroll" checked> 自動捲動
+                            </label>
+                            <button class="btn btn-secondary btn-xs" onclick="clearLogTerminal()"><i class="fa-solid fa-eraser"></i> 清除畫面</button>
+                            <a href="/api/logs?lines=500" target="_blank" class="btn btn-secondary btn-xs"><i class="fa-solid fa-arrow-up-right-from-square"></i> 原始日誌</a>
+                        </div>
+                    </div>
+
+                    <!-- Terminal Output Box -->
+                    <div id="terminal-body" class="terminal-body">
+                        <div class="log-line text-muted">[系統] 正在建立即時日誌 Server-Sent Events (SSE) 連線...</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ========================================================= -->
+            <!-- TAB 5: 伺服器與頻道 (Guilds & Channels) -->
+            <!-- ========================================================= -->
+            <section id="tab-guilds" class="tab-pane">
+                <div class="panel-header glass-panel mb-4">
+                    <h2 class="panel-title"><i class="fa-solid fa-server text-accent"></i> 已連線 Discord 伺服器清單</h2>
+                    <span id="guilds-total-pill" class="badge badge-primary">共 0 個伺服器</span>
+                </div>
+                <div id="guilds-cards-grid" class="guilds-cards-grid">
+                    <div class="empty-placeholder">
+                        <i class="fa-solid fa-spinner fa-spin"></i>
+                        <p>正在載入伺服器與頻道資料...</p>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+
+        <!-- Footer -->
+        <footer class="app-footer">
+            <p>Nome Bot Control Console &copy; 2026 &bull; 工業級音訊與全場自動錄音高可用架構</p>
+        </footer>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Custom Scripts -->
+    <script src="/app.js"></script>
+</body>
+</html>

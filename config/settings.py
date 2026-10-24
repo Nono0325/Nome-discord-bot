@@ -53,3 +53,8 @@ BROWSER_JSON_PATH = CONFIG_DIR / "browser.json"
 COOKIES_TXT_PATH = CONFIG_DIR / "cookies.txt"
 RESTART_INFO_PATH = CONFIG_DIR / "restart_info.json"
 LOG_FILE_PATH = LOGS_DIR / "bot.log"
+
+# 控制與監控台 (Web Dashboard) 設定
+DASHBOARD_ENABLED = os.getenv("DASHBOARD_ENABLED", "true").lower() in ("true", "1", "yes")
+DASHBOARD_HOST = os.getenv("DASHBOARD_HOST", "0.0.0.0").strip()
+DASHBOARD_PORT = int(os.getenv("DASHBOARD_PORT", "5000"))

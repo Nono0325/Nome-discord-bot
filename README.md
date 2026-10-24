@@ -39,7 +39,13 @@
 - **進程與管線保護 (Process & Pipe Safety)**：FFmpeg 子行程與 I/O 管道實裝 `try...finally` 主動關閉，根除殭屍行程與通訊管道中斷例外 (`0x800700e8`)。
 - **全域中斷與關閉保險絲 (`atexit` & Signal Handlers)**：無論是正常退出、`/restart` 重啟或接收到 `Ctrl+C` 終斷，皆能 100% 安全回收所有語音連線、播放緒與監聽器。
 
-### 4. 🎛️ 全功能視覺化控制台 (Dashboard UI)
+### 4. 🎛️ 全功能視覺化控制台與 Web 監控台 (Web Dashboard & Console)
+- **🌐 獨立 Web 視覺化控制與監控台 (`http://localhost:5000` / `/dashboard`)**：
+  - **極致玻璃擬態 (Cyber-Glassmorphism)**：採用現代暗黑美學，支援即時 WebSocket/SSE 串流更新。
+  - **即時系統監控**：即時掌握 Gateway Ping 延遲、RAM 記憶體、執行緒數與運行時間。
+  - **完整音樂播控**：黑膠唱片旋轉特效、進度條拖曳、音量滑桿、一鍵搜尋點歌與即將播放清單管理。
+  - **60 秒對話回放錄音室**：即時偵測近 60 秒活躍發言者，一鍵在瀏覽器中直接試聽與下載 15s/30s/60s/120s MP3 剪輯。
+  - **即時日誌終端機**：免刷新頁面即時串流 `bot.log`，支援日誌層級篩選與即時正則搜尋。
 - **免打指令圖形化介面 (`/panel` & `/setup_panel`)**：包含 6 大分類分頁選單、15 個即時狀態快捷按鈕、點歌/解答之書彈出式視窗（Modal）。
 - **即時正在播放卡片 (`/nowplaying`)**：高質感 Embed 卡片，支援即時暫停、切歌、音量調整、單曲循環、隨機播放與「⭐ 收藏本曲」。
 
@@ -187,6 +193,7 @@ start.bat
 | `/reload` | `[指定模組]` | **零停機熱重載！** 不中斷語音與播歌流程，動態熱更新 Python 邏輯並自動釋放舊線程池（管理員限定） |
 | `/git_pull` | 無 | **雲端熱更新！** 從 GitHub 遠端同步最新代碼並自動完成所有模組動態重載（管理員限定） |
 | `/restart` | `[force: 是/否]` | 安全重新啟動機器人主進程（具備防誤觸二次確認對話框與重啟就緒自動通知，管理員限定） |
+| `/dashboard` | 無 | **開啟 Web 控制台！** 獲取機器人 Web 網頁版即時控制與監控台訪問連結（Port 5000） |
 | `/logs` | `[lines] [as_file]` | **即時日誌檢視！** 在 Discord 內直接查看最新日誌紀錄或下載完整 `bot.log`（管理員限定） |
 | `/sysinfo` | 無 | 查看系統多工健康儀表板（活動背景執行緒數、Gateway Ping 延遲、連線數與連續運行時間） |
 
@@ -215,6 +222,9 @@ Discord-Boot/
 ├── setup_google.py          # Google 帳號互動式授權精靈 (支援設備碼/標頭/Cookie)
 ├── start.bat                # Windows 一鍵啟動腳本
 ├── logs/                    # 系統輪轉日誌目錄 (自動生成 bot.log，最高 10MB 輪轉備份)
+├── dashboard/               # 🌐 Web 即時控制與監控台
+│   ├── server.py            # aiohttp 異步 Web 服務器與 REST/SSE API 路由
+│   └── static/              # 玻璃擬態前端 (index.html, style.css, app.js)
 ├── .vscode/
 │   └── settings.json        # VS Code 預設虛擬環境與終端機配置
 ├── config/

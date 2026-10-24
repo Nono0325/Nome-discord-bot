@@ -21,7 +21,8 @@ if not exist ".env" (
 )
 
 echo [INFO] Starting Discord Bot using: %PYTHON_EXE%
-echo [INFO] System logs are recorded to: logs\bot.log
+echo [INFO] Web Dashboard: http://localhost:5000
+echo [INFO] System logs:   logs\bot.log
 echo [INFO] Press Ctrl+C anytime to safely stop the bot.
 echo =======================================================
 echo.

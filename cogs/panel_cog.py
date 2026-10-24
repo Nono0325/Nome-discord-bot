@@ -794,5 +794,30 @@ class PanelCog(commands.Cog):
         else:
             await ctx.respond("✅ 已成功部署全功能圖形化控制面板！", ephemeral=True)
 
+    @slash_command(name="dashboard", description="🌐 獲取機器人 Web 網頁版即時控制與監控台網址")
+    async def web_dashboard(self, ctx: discord.ApplicationContext):
+        from config.settings import DASHBOARD_PORT, DASHBOARD_HOST
+        display_host = "localhost" if DASHBOARD_HOST in ("0.0.0.0", "127.0.0.1") else DASHBOARD_HOST
+        dashboard_url = f"http://{display_host}:{DASHBOARD_PORT}"
+
+        embed = discord.Embed(
+            title="🌐 機器人 Web 即時控制與監控台",
+            description=(
+                "為您提供極致美觀的玻璃擬態 (Glassmorphism) 即時監控與控制儀表板！\n\n"
+                f"🔗 **本機訪問網址**: [{dashboard_url}]({dashboard_url})\n\n"
+                "**包含核心功能：**\n"
+                "• 📊 **即時性能監控**：Gateway 延遲、活動執行緒、RAM 記憶體\n"
+                "• 🎵 **音樂播控中心**：黑膠唱片動態、進度條、即時點播、佇列管理\n"
+                "• 🎙️ **語音回放與錄音**：60 秒一鍵對話剪輯、線上直接試聽、錄音檔管理\n"
+                "• 📋 **即時日誌終端**：免重啟即時 SSE 串流日誌、關鍵字過濾"
+            ),
+            color=0x5865F2
+        )
+        embed.set_footer(text=f"運行於 Port {DASHBOARD_PORT} • 隨時於本機瀏覽器開啟")
+        
+        view = discord.ui.View()
+        view.add_item(discord.ui.Button(label="開啟 Web 控制台", url=dashboard_url, emoji="🚀"))
+        await ctx.respond(embed=embed, view=view, ephemeral=True)
+
 def setup(bot: discord.Bot):
     bot.add_cog(PanelCog(bot))

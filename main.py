@@ -22,7 +22,10 @@ from config.settings import (
     AUTO_JOIN_ENABLED,
     AUTO_JOIN_MIN_MEMBERS,
     RESTART_INFO_PATH,
-    LOG_FILE_PATH
+    LOG_FILE_PATH,
+    DASHBOARD_ENABLED,
+    DASHBOARD_PORT,
+    DASHBOARD_HOST
 )
 
 # 設定全域日誌記錄器 (同時輸出至標準輸出與輪轉紀錄檔 logs/bot.log)
@@ -135,6 +138,14 @@ async def on_ready():
         name="YouTube Music 🎵 | /play | /clip"
     )
     await bot.change_presence(status=discord.Status.online, activity=activity)
+
+    # 啟動 Web 控制與監控台
+    if DASHBOARD_ENABLED:
+        try:
+            from dashboard.server import start_dashboard
+            await start_dashboard(bot)
+        except Exception as e:
+            logger.warning(f"啟動 Web 控制台例外: {e}")
 
     # 檢查是否有未完成的重啟通知
     if RESTART_INFO_PATH.exists():
