@@ -184,6 +184,14 @@ def apply_pycord_patches():
 
         PacketRouter.run = _patched_run
 
+        # 5.1 補丁 PacketRouter.destroy_all_decoders：使用 list 拷貝鍵值，避免迭代時 pop() 導致 dictionary changed size during iteration
+        def _patched_destroy_all_decoders(self) -> None:
+            with self._lock:
+                for ssrc in list(self.decoders.keys()):
+                    self.destroy_decoder(ssrc)
+
+        PacketRouter.destroy_all_decoders = _patched_destroy_all_decoders
+
         # 6. 補丁 VoiceConnectionState：強制開啟 DAVE Passthrough 穿透模式，防止 Discord 因端到端加密尚未收斂而全頻道靜音
         from discord.voice.state import VoiceConnectionState
         _orig_reinit_dave = VoiceConnectionState.reinit_dave_session

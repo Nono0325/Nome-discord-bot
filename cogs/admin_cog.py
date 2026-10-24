@@ -66,10 +66,15 @@ async def execute_bot_restart(bot: discord.Bot):
         "stderr": out_target,
     }
     if sys.platform == "win32":
-        # 加上 CREATE_BREAKAWAY_FROM_JOB (0x01000000)，確保脫離父進程 Job Object 限制
-        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS | 0x01000000
-
-    subprocess.Popen([python_exe, script_path], cwd=str(BASE_DIR), **kwargs)
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+        try:
+            # 優先嘗試加上 CREATE_BREAKAWAY_FROM_JOB (0x01000000)，確保脫離父進程 Job Object 限制
+            subprocess.Popen([python_exe, script_path], cwd=str(BASE_DIR), creationflags=creationflags | 0x01000000, **kwargs)
+        except OSError:
+            # 若系統或沙盒環境不允許脫離 Job Object 則退回一般分離進程
+            subprocess.Popen([python_exe, script_path], cwd=str(BASE_DIR), creationflags=creationflags, **kwargs)
+    else:
+        subprocess.Popen([python_exe, script_path], cwd=str(BASE_DIR), **kwargs)
 
     # 3. 關閉 Discord 連線並終止舊行程
     await bot.close()
