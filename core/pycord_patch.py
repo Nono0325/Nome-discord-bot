@@ -235,6 +235,24 @@ def apply_pycord_patches():
 
         VoiceClient.disconnect = _patched_vc_disconnect
 
+        # 7.1 補丁 VoiceClient.stop：只停止音樂播放 (AudioPlayer)，絕不誤殺語音錄音接收器 (_reader)
+        _orig_vc_stop = VoiceClient.stop
+
+        def _patched_vc_stop(self) -> None:
+            """
+            只停止音訊播放 (AudioPlayer)，絕不誤殺語音錄音接收器 (_reader)
+            """
+            if self._player:
+                self._player.stop()
+            if self._player_future:
+                self.loop.call_soon_threadsafe(
+                    self._set_future_result_if_pending, self._player_future, None
+                )
+            self._player = None
+            self._player_future = None
+
+        VoiceClient.stop = _patched_vc_stop
+
         # 8. 補丁 Connectable.connect：若目標伺服器已有舊的未連線殘留物件，自動移除並清理，防止拋出 Already connected
         from discord.abc import Connectable
         _orig_connect = Connectable.connect

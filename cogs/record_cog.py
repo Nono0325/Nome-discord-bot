@@ -34,6 +34,7 @@ class RecordCog(commands.Cog):
                 return await interaction_or_ctx.response.send_message(msg, ephemeral=True)
             return await interaction_or_ctx.respond(msg, ephemeral=True)
 
+        self.voice_mgr.ensure_recording(guild.id)
         sink = self.voice_mgr.get_sink(guild.id)
         if not sink:
             msg = "❌ 機器人目前未在語音頻道錄製音訊或未加入語音頻道！請先讓機器人加入語音。"
@@ -197,6 +198,7 @@ class RecordCog(commands.Cog):
 
     @slash_command(name="record_status", description="查看當前語音頻道的錄音緩衝區與說話狀態")
     async def record_status(self, ctx: discord.ApplicationContext):
+        self.voice_mgr.ensure_recording(ctx.guild.id)
         sink = self.voice_mgr.get_sink(ctx.guild.id)
         if not sink:
             return await ctx.respond("機器人目前不在語音頻道中，錄音模組閒置中。", ephemeral=True)

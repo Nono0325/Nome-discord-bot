@@ -113,28 +113,59 @@ class VoiceManager:
 
         # 啟動語音接收器（維護前一分鐘緩衝區與自動錄音）
         # 關鍵保護：必須確認 vc 已成功建立連線且非錄音中，杜絕 RecordingException: not connected to a voice channel
-        if vc and vc.is_connected() and not vc.is_recording():
+        if vc and vc.is_connected():
+            self.ensure_recording(guild.id)
+
+        return vc
+
+    def _create_record_callback(self, guild_id: int, vc: discord.VoiceClient, sink: RollingBufferSink):
+        def record_finished_callback(error=None, *args, **kwargs):
+            if error:
+                logger.error(f"伺服器 {guild_id} 的語音錄音發生錯誤終止: {error}", exc_info=isinstance(error, Exception))
+            else:
+                logger.info(f"伺服器 {guild_id} 的語音錄音已結束。")
+
+            # 自癒機制：若語音頻道依然連線中且該伺服器錄音 sink 仍未被顯式釋放，自動重新掛載錄音接收器
+            if vc and vc.is_connected() and guild_id in self.sinks and not getattr(sink, "finished", False):
+                logger.info(f"偵測到伺服器 {guild_id} 語音連線仍處於活躍狀態，正在自動重新掛載錄音接收器 (Auto-Reattach Sink)...")
+                try:
+                    self.bot.loop.call_later(1.0, lambda: self.ensure_recording(guild_id))
+                except Exception as ex:
+                    logger.debug(f"排程自動重啟錄音例外: {ex}")
+        return record_finished_callback
+
+    def ensure_recording(self, guild_id: int) -> bool:
+        """
+        確保該伺服器的錄音器處於活躍錄音狀態。
+        若語音連線存在但錄音接收器因故中斷，自動重啟並無縫掛載。
+        """
+        guild = self.bot.get_guild(guild_id)
+        if not guild or not guild.voice_client:
+            return False
+        vc = guild.voice_client
+        if not vc.is_connected():
+            return False
+
+        sink = self.sinks.get(guild_id)
+        if not sink or getattr(sink, "finished", False):
             sink = RollingBufferSink(
                 buffer_seconds=float(REPLAY_BUFFER_SECONDS + 10),
                 auto_record=self.auto_record,
                 vc=vc
             )
             sink.init(vc)
-            self.sinks[guild.id] = sink
+            self.sinks[guild_id] = sink
 
-            def record_finished_callback(error=None, *args, **kwargs):
-                if error:
-                    logger.error(f"伺服器 {guild.id} 的語音錄音發生錯誤終止: {error}", exc_info=isinstance(error, Exception))
-                else:
-                    logger.info(f"伺服器 {guild.id} 的語音錄音已正常結束。")
-
+        if not vc.is_recording():
             try:
-                vc.start_recording(sink, record_finished_callback)
-                logger.info(f"已在語音頻道 {voice_channel.name} 啟動循環對話緩衝區 (自動錄音={self.auto_record})")
+                cb = self._create_record_callback(guild_id, vc, sink)
+                vc.start_recording(sink, cb)
+                logger.info(f"伺服器 {guild_id} 語音錄音接收器已自動掛載並啟動 (自動錄音={self.auto_record})")
+                return True
             except Exception as e:
-                logger.error(f"啟動語音接收器時發生例外: {e}", exc_info=True)
-
-        return vc
+                logger.warning(f"啟動錄音接收器失敗: {e}")
+                return False
+        return True
 
     async def disconnect_voice(self, guild_id: int):
         """

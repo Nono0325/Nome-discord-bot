@@ -244,6 +244,9 @@ async def on_voice_state_update(member, before, after):
                         await bot.voice_manager.connect_voice(target_ch, manual=False)
                     except Exception as e:
                         logger.warning(f"自動移動語音頻道失敗: {e}")
+            elif vc.channel and vc.channel.id == target_ch.id:
+                # 機器人已在該頻道中，確保錄音接收器處於活躍運作狀態
+                bot.voice_manager.ensure_recording(guild.id)
 
     # ----------------------------------------------------
     # 情境二：成員離開或切換出原本的語音頻道 (before.channel)
