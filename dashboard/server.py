@@ -84,25 +84,41 @@ def get_system_metrics() -> dict:
         process = psutil.Process()
         mem_mb = round(process.memory_info().rss / (1024 * 1024), 1)
     except Exception:
-        # Fallback 估算或不使用 psutil
+        pass
+
+    # Windows 64-bit ctypes 原生呼叫 Fallback (若 psutil 未安裝或異常)
+    if mem_mb <= 0.0 and sys.platform == "win32":
         try:
             import ctypes
-            class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+            from ctypes import wintypes
+            class PROCESS_MEMORY_COUNTERS_EX(ctypes.Structure):
                 _fields_ = [
-                    ("cb", ctypes.c_ulong),
-                    ("PageFaultCount", ctypes.c_ulong),
+                    ("cb", wintypes.DWORD),
+                    ("PageFaultCount", wintypes.DWORD),
                     ("PeakWorkingSetSize", ctypes.c_size_t),
                     ("WorkingSetSize", ctypes.c_size_t),
+                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                    ("PagefileUsage", ctypes.c_size_t),
+                    ("PeakPagefileUsage", ctypes.c_size_t),
+                    ("PrivateUsage", ctypes.c_size_t),
                 ]
-            counters = PROCESS_MEMORY_COUNTERS()
-            ctypes.windll.psapi.GetProcessMemoryInfo(
-                ctypes.windll.kernel32.GetCurrentProcess(),
-                ctypes.byref(counters),
-                ctypes.sizeof(counters)
-            )
-            mem_mb = round(counters.WorkingSetSize / (1024 * 1024), 1)
+            kernel32 = ctypes.windll.kernel32
+            kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+            kernel32.K32GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESS_MEMORY_COUNTERS_EX), wintypes.DWORD]
+            kernel32.K32GetProcessMemoryInfo.restype = wintypes.BOOL
+            
+            counters = PROCESS_MEMORY_COUNTERS_EX()
+            counters.cb = ctypes.sizeof(counters)
+            if kernel32.K32GetProcessMemoryInfo(kernel32.GetCurrentProcess(), ctypes.byref(counters), ctypes.sizeof(counters)):
+                mem_mb = round(counters.WorkingSetSize / (1024 * 1024), 1)
         except Exception:
-            mem_mb = 52.0
+            pass
+
+    if mem_mb <= 0.0:
+        mem_mb = 64.0
 
     uptime_sec = round(time.time() - START_TIME)
     return {
