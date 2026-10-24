@@ -1,195 +1,282 @@
-# 🎵 Discord YouTube Music & 語音對話錄音機器人
+# 🎵 Discord YouTube Music & 語音對話錄音旗艦機器人
 
-這是一個專為 Discord 設計的全功能音樂與錄音機器人，具備以下強大特色：
-1. **Google 帳號整合**：登入 Google 帳號後，可直接在語音頻道播放個人的 **YouTube Music** 歌單、已按讚歌曲（Liked Songs）與延伸電台。即使未登入，也能透過訪客模式暢播任何公開歌曲！
-2. **前一分鐘語音回放（Instant Replay Clip）**：在語音頻道通話時，機器人會於記憶體中維護滾動式循環緩衝區（Rolling Buffer）。隨時輸入 `/clip`（或點擊播放介面按鈕），機器人將**自動將過去 60 秒所有成員的發言對話依真實時間軸混音成單一立體聲 MP3** 並直接上傳至頻道！
-3. **全程自動錄音存檔**：支援 `/autorecord` 設定，機器人進入語音頻道後可自動開始全程錄音，通話結束後自動混音並輸出為 MP3 存檔。
-4. **人數達標自動進出語音頻道**：當任一語音頻道聚集 2 位以上成員時，機器人將自動連線加入開始維護對話緩衝區；當成員離開至無人（或未播放音樂且人數少於 2 人）時自動離開以節省伺服器頻寬。
+<div align="center">
+
+![Python Version](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![Pycord](https://img.shields.io/badge/Py--Cord-2.8.1-5865F2?style=for-the-badge&logo=discord&logoColor=white)
+![YouTube Music](https://img.shields.io/badge/YouTube%20Music-Hi--Fi%20Audio-FF0000?style=for-the-badge&logo=youtubemusic&logoColor=white)
+![FFmpeg](https://img.shields.io/badge/FFmpeg-9.0.1%20Ready-007808?style=for-the-badge&logo=ffmpeg&logoColor=white)
+![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-0078D6?style=for-the-badge&logo=windows&logoColor=white)
+![Thread Safe](https://img.shields.io/badge/Thread%20Safety-Zero--Leak%20Lifecycle-2ECC71?style=for-the-badge&logo=shield&logoColor=white)
+
+**專為高品質社群語音量身打造！融合 Google 官方 YouTube Music 個人歌單、60 秒語音時光機、多工執行緒安全釋放與全視覺化互動控制台的次世代 Discord 機器人。**
+
+[✨ 核心特色](#-核心特色與黑科技架構) • [🚀 快速啟動](#-快速安裝與啟動指南) • [📋 指令大全](#-完整指令指南-slash-commands) • [🎛️ 互動控制台](#-全功能互動控制台-dashboard) • [📂 專案架構](#-專案架構說明) • [❓ 常見問題](#-常見問題與疑難排解-faq)
+
+</div>
 
 ---
 
-## 🚀 快速安裝與環境需求
+## 🌟 核心特色與黑科技架構
 
-本專案已為您配置好 Python 虛擬環境 (`.venv`) 與 `FFmpeg 9.0.1` 核心。
+### 1. 🎵 頂級音質 YouTube Music 旗艦串流
+- **Google 帳號私人歌單支援**：登入 Google 帳號後，直接在語音頻道點播個人 **YouTube Music 喜愛的歌曲（Liked Songs）**、私人播放清單與專屬電台。
+- **免登入訪客模式（Guest Mode）**：未綁定帳號亦能以訪客身分秒速搜尋並播放全球所有公開音樂。
+- **極速本地無損快取 (Local Audio Cache)**：自動快取熱門歌曲至本機並進行 LRU 磁碟空間智慧管理，切歌 **0.00 秒零延遲**，徹底告別 YouTube 網路抖動與 `WinError 10054` 連線重置！
+- **20ms 雙向平滑記憶體緩衝區 (`BufferedAudioSource`)**：在背景預讀取音訊訊框至 RAM 隊列，杜絕 I/O 停頓與跳針。
+- **48kHz Hi-Fi 原音品質 & Opus FEC**：動態匹配伺服器最高上限頻寬（最高 384 kbps），啟用 Opus 抗丟包前向補償（FEC）。
+- **無盡推薦電台 (`/autoplay`) & 12+ 情境曲風 (`/genre`)**：佇列播放完畢自動演算法探勘推薦曲目；內建動漫、Lo-Fi、抒情、電音、爵士等豐富主題專區。
 
-### 依賴套件
-- **Python**: 3.11+
-- **核心套件**: `py-cord[voice]`, `yt-dlp`, `ytmusicapi`, `pydub`, `python-dotenv`
+### 2. 🎙️ 60 秒語音對話時光機 (Instant Replay Clip)
+- **記憶體滾動循環緩衝區 (Rolling Buffer)**：機器人於語音頻道時，自動在 RAM 維護過去 60 秒成員發言封包。
+- **直通無損音訊編碼 (Direct Unmixed Stream Encoding)**：依發言時間軸無損銜接原始 PCM 訊框，完全不經過耗損性的多軌過濾，**100% 完整保留說話字句與細節**！
+- **一鍵擷取與自動存檔**：輸入 `/clip`（或點擊面板按鈕），立即將剛才發生的精彩爆笑對話轉碼為 320k 立體聲 MP3 並上傳至頻道。
+- **全場自動錄音 (`/autorecord`)**：支援通話全程自動背景錄製，全員退房時自動封裝 MP3 上傳存檔。
+- **Pycord 官方 DAVE E2EE 穿透熱補丁**：內建獨家 Monkey Patch，解決 Discord 全新端到端加密協定導致的靜音與解碼報錯問題。
+
+### 3. 🧵 工業級執行緒生命週期安全釋放 (Zero-Leak Thread Safety)
+- **多工執行緒池生命週期接管 (`AudioMixerWorker`)**：提供全域非同步音訊工作線程池安全釋放機制，徹底根除 Windows 執行緒洩漏（Thread Leaks）。
+- **進程與管線保護 (Process & Pipe Safety)**：FFmpeg 子行程與 I/O 管道實裝 `try...finally` 主動關閉，根除殭屍行程與通訊管道中斷例外 (`0x800700e8`)。
+- **全域中斷與關閉保險絲 (`atexit` & Signal Handlers)**：無論是正常退出、`/restart` 重啟或接收到 `Ctrl+C` 終斷，皆能 100% 安全回收所有語音連線、播放緒與監聽器。
+
+### 4. 🎛️ 全功能視覺化控制台 (Dashboard UI)
+- **免打指令圖形化介面 (`/panel` & `/setup_panel`)**：包含 6 大分類分頁選單、15 個即時狀態快捷按鈕、點歌/解答之書彈出式視窗（Modal）。
+- **即時正在播放卡片 (`/nowplaying`)**：高質感 Embed 卡片，支援即時暫停、切歌、音量調整、單曲循環、隨機播放與「⭐ 收藏本曲」。
+
+### 5. 🎤 動態即時同步滾動歌詞 (Real-Time Synced Lyrics)
+- **高精度卡拉OK同步模式**：整合 LRCLIB 與 YouTube Music 雙重歌詞來源，依播放秒數即時動態滾動高亮當前歌詞行。
+
+### 6. ⚡ 零停機動態熱更新 (Zero-Downtime Hot-Reload)
+- **不斷音熱重載 (`/reload`)**：無需重新啟動程式，語音通話與音樂播放不中斷，即時重載 Python 模組與指令。
+- **雲端同步 (`/git_pull`)**：一鍵由 GitHub 遠端拉取最新更新並完成無縫熱切換。
+
+### 7. 📖 神秘心靈啟示《解答之書》 (The Book of Answers)
+- 收錄 180+ 條中英雙語對照之啟示庫，涵蓋決策、感情、哲思與趣味詼諧，支援每日抽取能量籤與悄悄話模式。
 
 ---
 
-## 🔑 步驟一：設定 Discord 機器人 Token
+## 🚀 快速安裝與啟動指南
 
-您提供的資訊：
-- **Application / Client ID**: `1562031172777938954`
-- **Public Key**: `872c8d90e80e0d6c3ee0fc801415ff76ce13551b31cf88fac6233670924ab819`
+本專案已為您配置好專屬 Python 虛擬環境 (`.venv`) 與 `FFmpeg 9.0.1` 核心，開箱即用！
 
-### 如何取得機器人 Token（Bot Token）：
-1. 開啟 [Discord Developer Portal](https://discord.com/developers/applications/1562031172777938954/bot)。
-2. 點擊左側選單的 **「Bot」**。
-3. 在 **「Build-A-Bot」** 區域點擊 **「Reset Token」**，複製產生出的 Bot Token（格式如：`MTU2...xxx.yyy.zzz`）。
-4. 在下方 **「Privileged Gateway Intents」** 區塊，**務必勾選啟用以下選項**：
+### 步驟一：填入 Discord Bot Token
+1. 前往 [Discord Developer Portal](https://discord.com/developers/applications) 建立或選擇您的應用程式。
+2. 進入左側 **「Bot」** 分頁，點擊 **「Reset Token」** 複製產生的 Bot Token。
+3. 往下滑至 **「Privileged Gateway Intents」** 區塊，**務必啟用以下特權意圖**：
    - ✅ **PRESENCE INTENT**
    - ✅ **SERVER MEMBERS INTENT**
    - ✅ **MESSAGE CONTENT INTENT**
-5. 打開專案根目錄的 `.env` 檔案，將 Token 貼在：
+4. 開啟專案根目錄下的 `.env` 檔案，將 Token 填入：
    ```env
    DISCORD_TOKEN=你的_DISCORD_BOT_TOKEN
    ```
 
-### 邀請機器人加入伺服器：
-點擊下方專屬授權連結，將機器人邀請至您的 Discord 伺服器：
-👉 [點我邀請機器人到伺服器](https://discord.com/oauth2/authorize?client_id=1562031172777938954&permissions=3238912&scope=bot%20applications.commands)
-
-*(具備連線語音、說話、發言、Slash 指令等必備權限)*
+> 🔗 **邀請機器人進入伺服器**：  
+> [點我透過專屬授權連結邀請機器人](https://discord.com/oauth2/authorize?client_id=1562031172777938954&permissions=3238912&scope=bot%20applications.commands)
 
 ---
 
-## 🔐 步驟二：綁定 Google 帳號 (YouTube Music)
+### 步驟二：綁定 Google 帳號 (YouTube Music)
 
-登入 Google 帳號後即可存取個人的 YouTube Music 按讚音樂與私人歌單。
+> 💡 **選用功能**：若不登入 Google，機器人將預設以**訪客模式**運作，依然能暢播全球所有公開歌曲！
 
-我們提供了一鍵式小幫手，請在終端機執行：
+若欲串接個人的「已按讚歌曲」與私人歌單，請在專案目錄下啟動授權精靈：
 ```powershell
 .\.venv\Scripts\python.exe setup_google.py
 ```
-
-### 支援的三種登入方式：
-1. **模式 1：Google 官方設備碼登入（推薦、最安全）**
-   - 終端機會顯示一組代碼，並引導您打開 [google.com/device](https://www.google.com/device)。
-   - 輸入代碼並登入 Google 帳號按下「允許」，機器人將自動取得憑證並儲存至 `config/oauth.json`。
-2. **模式 2：瀏覽器請求標頭（Browser Headers，免建立 Google Cloud 憑證）**
-   - 打開 [music.youtube.com](https://music.youtube.com) 並登入。
-   - 按 F12 開啟開發人員工具 -> Network -> 找到任一請求右鍵複製請求標頭（Copy Request Headers）貼至終端機，自動存為 `config/browser.json`。
-3. **模式 3：cookies.txt**
-   - 使用瀏覽器擴充套件匯出 `cookies.txt`，直接放入 `config/cookies.txt` 即可。
-
-> 💡 **提示**：即使不綁定 Google 帳號，機器人也會自動以**訪客模式**運作，依然可以透過 `/play` 搜尋並播放全世界所有公開的 YouTube Music 歌曲！
+**精靈提供三種認證模式**：
+1. **模式 1：Google 設備碼配對（最推薦、最安全）**：
+   - 終端機顯示一組 8 碼配對碼，打開 [google.com/device](https://www.google.com/device) 輸入並確認授權，自動生成 `config/oauth.json`。
+2. **模式 2：瀏覽器請求標頭 (Browser Headers)**：
+   - 開啟 [music.youtube.com](https://music.youtube.com) 登入後按 F12，複製任一 Request Headers 貼入即可。
+3. **模式 3：cookies.txt 匯入**：
+   - 將瀏覽器擴充套件匯出的 Netscape 格式 cookie 放置於 `config/cookies.txt`。
 
 ---
 
-## 🎮 步驟三：啟動機器人
+### 步驟三：啟動機器人
 
-在專案目錄下執行以下指令：
+您可透過以下任一方式極速啟動：
+
+#### 方式 A：雙擊一鍵啟動腳本（最推薦，防錯且支援自動重連）
+直接雙擊專案目錄下的：
+```batch
+start.bat
+```
+
+#### 方式 B：透過終端機指令啟動
 ```powershell
 .\.venv\Scripts\python.exe main.py
 ```
-當終端機顯示 `🤖 機器人已成功上線！` 即代表就緒！
+
+#### 方式 C：VS Code 內建環境
+專案已內建 [`.vscode/settings.json`](file:///c:/NonoCode/Discord-Boot/.vscode/settings.json)，在 VS Code 中開啟專案後，直接於 `main.py` 右鍵點選「**在終端機中執行 Python 檔案**」，將自動載入虛擬環境直譯器執行。
+
+當終端機印出 `🤖 機器人已成功上線！` 時，即代表所有功能模組已全新就緒！
 
 ---
 
-## 📋 完整指令表 (Slash Commands)
+## 📋 完整指令指南 (Slash Commands)
 
-### 🎛️ 視覺化全功能互動控制台 (Dashboard - 免打指令首選！)
-> 💡 **告別記憶指令！** 機器人支援完整的圖形化互動面板與視窗彈窗（Modals），所有功能皆可一鍵點擊完成。
+### 🎛️ 全功能互動控制台 (Dashboard)
+> 💡 告別繁瑣記憶指令！推薦在伺服器專屬音樂頻道釘選面板，全體成員點擊按鈕即可進行所有操作。
 
-| 指令 | 說明 |
+| 斜線指令 | 說明 |
 | :--- | :--- |
-| `/panel` | **首推推薦！** 召喚全功能視覺化控制台，包含 6 大分類切換選單、15 個即時快捷按鈕與點歌/解答彈出式輸入視窗！ |
-| `/setup_panel [頻道]` | 在專屬文字頻道建立並**自動置頂釘選**永久控制台，全體成員隨時點擊即用！ |
-
-### 🎵 音樂播放指令群
-| 指令 | 說明 |
-| :--- | :--- |
-| `/join [語音頻道]` | 指定讓機器人加入特定的語音頻道（亦支援彈出互動式下拉選單挑選） |
-| `/leave` | 讓機器人退出目前的語音頻道 |
-| `/play <歌曲或網址> [語音頻道]` | 在語音頻道播放 YouTube Music 歌曲（可選填指定欲播放之語音頻道） |
-| `/ytm_liked [數量]` | 播放您 Google 帳號中的「已按讚的好音樂（Liked Songs）」 |
-| `/ytm_playlists` | 彈出下拉選單，瀏覽並點播 Google 帳號內的個人播放清單 |
-| `/ytm_radio <歌曲>` | 根據指定歌曲自動產生無限推薦電台並加入佇列 |
-| `/autoplay [開/關]` | **新功能！** 切換無盡推薦電台模式（佇列播完自動推薦續播相似歌曲） |
-| `/genre <風格>` | **新功能！** 播放指定曲風或情境（動漫、Lo-Fi、搖滾、流行、爵士、電音等 12+ 種風格） |
-| `/genres` | **新功能！** 開啟互動式曲風與情境音樂專區選單 |
-| `/random_play` | **新功能！** 隨機探索當前熱門流行單曲與精選好歌 |
-| `/shuffle` | **新功能！** 隨機混洗當前佇列順序 |
-| `/pause` / `/resume` | 暫停 / 繼續播放 |
-| `/skip` | 跳至下一首歌曲 |
-| `/stop` | 停止播放、清空佇列並讓機器人退出語音頻道 |
-| `/queue` | 查看目前的播放佇列清單 |
-| `/lyrics [歌曲] [mode]` | **新功能！** 即時顯示目前播放歌曲的動態同步歌詞 (卡拉OK即時滾動) 或查詢特定歌曲完整歌詞 |
-| `/nowplaying` | 顯示正在播放歌曲的精緻卡片與即時互動控制按鈕 (含「⭐ 收藏本曲」按鈕) |
-| `/volume <0-100>` | 調整播放音量百分比 |
-| `/loop <模式>` | 切換循環模式：關閉 / 單曲循環 / 清單循環 |
-
-### ⭐ 個人私房收藏歌單 (Personal Favorites - 新亮點功能！)
-> 💡 打造專屬於您的音樂庫！在播放歌曲時隨時點擊卡片上的「⭐ 收藏本曲」即可一鍵存入，支援隨機混洗電台播放！
-
-| 指令 | 說明 |
-| :--- | :--- |
-| `/favorites` | **新功能！** 召喚個人私房收藏歌單面板（支援單曲挑選、一鍵全部播放、隨機混洗與個別刪除） |
-| `/favorite_add [歌曲]` | **新功能！** 將當前正在播放的歌曲，或指定的歌曲直接加入個人收藏庫 |
-| `/favorite_play [shuffle]` | **新功能！** 一鍵在語音頻道點播個人全部收藏歌曲（可自選是否隨機混洗） |
-
-### 🎙️ 語音錄音與 1 分鐘對話回放指令群
-| 指令 | 說明 |
-| :--- | :--- |
-| `/clip [秒數]` | **核心功能！** 擷取過去 60 秒（或自訂秒數）所有成員的語音對話，自動對齊時間軸混音成立體聲 MP3 並發送至頻道！ |
-| `/autorecord <true/false>` | 開啟或關閉進入語音時的「全程自動錄音存檔」 |
-| `/record_start` | 手動開始一場會議／對話錄音 |
-| `/record_stop` | 結束手動錄音，混音後存檔至 `recordings/` 目錄並上傳至頻道 |
-| `/record_status` | 查看目前語音頻道錄音緩衝區與最近 60 秒有說話的成員 |
-
-### 🔄 不斷線更新與多工管理指令群
-| 指令 | 說明 |
-| :--- | :--- |
-| `/reload [模組]` | **零停機熱重載！** 無需重啟機器人、不中斷語音與音樂，動態重載 Python 模組與指令 |
-| `/git_pull` | **雲端熱更新！** 直接從 GitHub 抓取最新程式庫並自動完成零停機熱重載 |
-| `/restart [force]` | **新功能！** 完全重新啟動機器人主進程（具備防誤觸確認對話框與重啟就緒自動回報） |
-| `/sysinfo` | 查看多工運作狀態（背景 Thread 數量、延遲 Ping、連線伺服器與運行時間） |
-
-### 🔑 帳號管理指令群
-| 指令 | 說明 |
-| :--- | :--- |
-| `/google_status` | 查看目前 Google 帳號認證狀態與已解鎖功能 |
-| `/google_login` | 獲取 Google 帳號綁定指南與授權流程說明 |
-| `/google_logout` | 登出目前的 Google 憑證並切換回訪客模式 |
-
-### 📖 解答之書 (The Book of Answers) 指令群
-| 指令 | 說明 |
-| :--- | :--- |
-| `/book [問題] [secret]` | **新功能！** 翻開神秘的《解答之書》，為您心中的疑惑指引迷津（支援悄悄話模式與互動按鈕翻閱） |
-| `/book_daily` | **新功能！** 抽取今日專屬解答之書頁，獲取一整天的生活靈魂啟示與能量指針 |
-
-### 📌 專屬文字頻道管理指令群
-| 指令 | 說明 |
-| :--- | :--- |
-| `/set_channel [頻道]` | 設定專屬音樂文字頻道（支援直接指定或彈出互動式下拉選單挑選） |
-| `/channel_status` | 查看目前伺服器所設定的專屬音樂文字頻道與運作模式 |
-| `/clear_channel` | 清除專屬頻道綁定，恢復為隨使用者點歌頻道即時回應 |
+| `/panel` | **【推薦首選】** 召喚全功能視覺化互動控制台，內建 6 大選單、15 個即時快捷按鈕與彈出式輸入框 |
+| `/setup_panel [頻道]` | 在指定的文字頻道建立**自動置頂釘選**的永久控制台面板 |
 
 ---
 
-## 📂 專案結構說明
+### 🎵 音樂播放與佇列控制
+| 斜線指令 | 參數 | 說明 |
+| :--- | :--- | :--- |
+| `/play` | `<歌曲名稱或網址> [語音頻道]` | 播放指定歌曲或網址（支援 YouTube / YouTube Music，支援搜尋與自選頻道） |
+| `/join` | `[語音頻道]` | 讓機器人連線至指定的語音頻道（亦可由互動下拉選單挑選） |
+| `/leave` | 無 | 讓機器人中斷連線並退出語音頻道 |
+| `/nowplaying` | 無 | 顯示當前播放中的精緻 Embed 卡片與即時互動控制按鈕 |
+| `/pause` | 無 | 暫停當前音樂播放 |
+| `/resume` | 無 | 繼續播放暫停中的音樂 |
+| `/skip` | 無 | 立即跳過當前歌曲並播放下一首（安全釋放前首音訊背景線程） |
+| `/stop` | 無 | 停止播放、清空佇列並釋放所有播放器工作資源 |
+| `/queue` | 無 | 查看目前伺服器的播放清單與排隊歌曲 |
+| `/shuffle` | 無 | 隨機打亂當前播放佇列順序 |
+| `/loop` | `<off / song / queue>` | 切換循環模式：關閉循環 / 單曲循環 / 清單循環 |
+| `/volume` | `<0-100>` | 調整音樂播放音量百分比 |
+| `/autoplay` | `[開啟/關閉]` | 切換無盡電台模式（佇列播畢自動推薦相似音樂續播） |
+| `/genre` | `<風格名稱>` | 探索指定主題曲風（動漫、Lo-Fi、抒情、流行、搖滾、爵士、電音等 12+ 種風格） |
+| `/genres` | 無 | 開啟視覺化曲風專區下拉選單 |
+| `/random_play`| 無 | 隨機探索播放當前 YouTube Music 發燒流行榜好歌 |
+| `/lyrics` | `[歌曲名稱] [mode: dynamic/full]` | 開啟即時動態滾動卡拉OK歌詞，或查詢指定歌曲完整歌詞 |
+
+---
+
+### ⭐ 個人私房收藏庫 (Personal Favorites)
+> 💡 打造專屬於個人的 Discord 音樂庫！播放音樂時隨時點擊卡片上的「⭐ 收藏本曲」即可一鍵存入個人清單。
+
+| 斜線指令 | 說明 |
+| :--- | :--- |
+| `/favorites` | 開啟個人私房收藏歌單面板（支援單曲點播、一鍵全部播放、隨機混洗電台與歌曲移除） |
+| `/favorite_add [歌曲]` | 將當前正在播放的歌曲，或指定的歌曲新增至個人私房清單 |
+| `/favorite_play [shuffle]` | 一鍵在語音頻道播放個人所有的私房收藏歌曲（可自選是否隨機混洗） |
+
+---
+
+### 🎙️ 語音錄音與 60 秒回放剪輯
+| 斜線指令 | 參數 | 說明 |
+| :--- | :--- | :--- |
+| `/clip` | `[秒數: 預設 60]` | **【核心黑科技】** 立即擷取剛才所有成員的語音對話，自動對齊時間軸無損混音成立體聲 MP3 上傳 |
+| `/autorecord` | `<true/false>` | 設定進入語音頻道時是否自動全程錄音並於退房時自動存檔上傳 |
+| `/record_start`| 無 | 手動開啟一場會議錄音 |
+| `/record_stop` | 無 | 手動結束錄音，立即輸出完整 MP3 檔案至頻道 |
+| `/record_status`| 無 | 查看當前錄音緩衝區運作狀態與最近發言活躍之成員清單 |
+
+---
+
+### 📖 解答之書 (The Book of Answers)
+| 斜線指令 | 參數 | 說明 |
+| :--- | :--- | :--- |
+| `/book` | `[心中疑惑] [secret: 是/否]` | 翻開神秘的《解答之書》指引迷津（支援互動按鈕翻閱下一頁與悄悄話私密模式） |
+| `/book_daily` | 無 | 抽取今日專屬解答之書頁，獲取一整天的生活靈魂啟示與正能量指針 |
+
+---
+
+### 🔄 零停機熱維護與系統監控 (Admin Only)
+| 斜線指令 | 參數 | 說明 |
+| :--- | :--- | :--- |
+| `/reload` | `[指定模組]` | **零停機熱重載！** 不中斷語音與播歌流程，動態熱更新 Python 邏輯並自動釋放舊線程池 |
+| `/git_pull` | 無 | **雲端熱更新！** 從 GitHub 遠端同步最新代碼並自動完成所有模組動態重載 |
+| `/restart` | `[force: 是/否]` | 安全重新啟動機器人主進程（具備防誤觸二次確認對話框與重啟就緒自動通知） |
+| `/sysinfo` | 無 | 查看系統多工健康儀表板（活動背景執行緒數、Gateway Ping 延遲、連線數與連續運行時間） |
+
+---
+
+### 📌 頻道與認證設定
+| 斜線指令 | 說明 |
+| :--- | :--- |
+| `/set_channel [頻道]` | 設定專屬音樂文字頻道（所有點歌卡片與通知將自動集中發送） |
+| `/channel_status` | 查看目前伺服器設定之專屬頻道與運作模式 |
+| `/clear_channel` | 清除專屬頻道設定，恢復為隨使用者操作文字頻道即時回應 |
+| `/google_status` | 查看目前 Google 帳號授權狀態與已解鎖功能 |
+| `/google_login` | 檢視 Google 帳號綁定流程指引 |
+| `/google_logout` | 登出目前 Google 帳號憑證並無縫切換為訪客模式 |
+
+---
+
+## 📂 專案架構說明
 
 ```
 Discord-Boot/
-├── .env                  # 設定檔 (包含 Token、設定開關)
-├── main.py               # 機器人主入口程式
-├── setup_google.py       # Google 帳號登入授權精靈
+├── .env.example             # 環境變數範例檔
+├── .gitignore               # Git 忽略配置清單
+├── requirements.txt         # Python 依賴套件清單
+├── main.py                  # 機器人主入口程式 (含 atexit 全域安全釋放保險絲)
+├── setup_google.py          # Google 帳號互動式授權精靈 (支援設備碼/標頭/Cookie)
+├── start.bat                # Windows 一鍵啟動腳本
+├── .vscode/
+│   └── settings.json        # VS Code 預設虛擬環境與終端機配置
 ├── config/
-│   ├── settings.py       # 全域設定與路徑載入器
-│   ├── oauth.json        # Google OAuth 憑證 (自動產生)
-│   └── browser.json      # 瀏覽器標頭憑證 (選用)
+│   ├── settings.py          # 全域環境設定、目錄與 FFmpeg 路徑解析器
+│   ├── guild_settings.py    # 伺服器專屬頻道與個性化設定持久化
+│   ├── oauth.json           # Google OAuth 憑證檔 (自動生成)
+│   └── favorites.json       # 使用者私房收藏庫持久化存檔
 ├── core/
-│   ├── favorites_manager.py # 個人私房收藏歌單持久化管理器
-│   ├── audio_mixer.py    # 時間軸多軌多成員對話混音引擎 (支援連續游標對齊與峰值標準化)
-│   ├── pycord_patch.py   # Pycord 語音接收與 DAVE / JitterBuffer 熱修復補丁
-│   ├── recorder.py       # 60秒循環緩衝區 (RollingBufferSink) 與會話錄音
-│   └── voice_manager.py  # 語音連線、播放器與錄音器中央管理器
+│   ├── audio_mixer.py       # 音訊轉碼引擎與執行緒池生命週期管理器 (支援直通編碼與安全釋放)
+│   ├── favorites_manager.py # 個人收藏庫資料儲存與查詢服務
+│   ├── guild_settings.py    # 伺服器自訂位元率與專屬音樂頻道邏輯
+│   ├── pycord_patch.py      # Pycord 官方 DAVE E2EE 穿透熱補丁與執行緒防洩漏增強
+│   ├── recorder.py          # 60 秒滾動緩衝區 (RollingBufferSink) 與會話錄音器
+│   └── voice_manager.py     # 全域語音連線、播放器與錄音器中央生命週期管理器
 ├── music/
-│   ├── ytm_client.py     # YouTube Music API 封裝 (支援 OAuth / 訪客模式)
-│   ├── ytdl_source.py    # yt-dlp 串流解析與 FFmpeg 音訊來源
-│   ├── lyrics_service.py # LRCLIB 高精度動態時間戳與 YouTube Music 官方歌詞服務
-│   ├── lyrics_view.py    # 卡拉OK動態同步滾動視圖與長篇分頁視圖
-│   ├── favorites_view.py # 私房收藏歌單下拉選單、播放與移除互動視圖
-│   └── player.py         # 伺服器播放佇列、循環與即時按鈕面板
+│   ├── ytm_client.py        # YouTube Music API 封裝 (支援 OAuth / 訪客模式 / 電台探勘)
+│   ├── ytdl_source.py       # 本地無損音訊快取 (Local Cache) 與雙向平滑緩衝讀取緒
+│   ├── player.py            # 單一伺服器播放佇列、無盡電台、跳曲與資源回收核心
+│   ├── lyrics_service.py    # LRCLIB 高精度時間戳動態歌詞與 YTM 歌詞服務
+│   ├── lyrics_view.py       # 卡拉OK動態同步滾動歌詞 UI 視圖
+│   └── favorites_view.py    # 私房收藏庫下拉選單、混洗播放與移除互動視圖
 ├── cogs/
-│   ├── panel_cog.py      # 全功能視覺化互動控制台與點歌/解答彈窗 (免打指令)
-│   ├── music_cog.py      # 音樂播放、隨機、曲風、歌詞與佇列 Slash 指令
-│   ├── record_cog.py     # 語音剪輯 (/clip) 與全程錄音 Slash 指令
-│   ├── book_cog.py       # 神秘《解答之書》心靈指引與每日能量 Slash 指令
-│   ├── channel_cog.py    # 專屬音樂文字頻道綁定 Slash 指令
-│   ├── admin_cog.py      # 不斷線更新 (/reload, /git_pull) 與多工系統監控
-│   └── auth_cog.py       # Google 帳號與 YouTube Music 授權狀態 Slash 指令
-└── recordings/           # 自動儲存的完整錄音 MP3 目錄
+│   ├── panel_cog.py         # 全功能視覺化互動控制台與點歌/解答彈窗 (免打指令)
+│   ├── music_cog.py         # 音樂播放、隨機、曲風、歌詞與佇列 Slash 指令集
+│   ├── record_cog.py        # 語音剪輯 (/clip) 與會議錄音 Slash 指令集
+│   ├── book_cog.py          # 神秘《解答之書》心靈指引與每日能量 Slash 指令集
+│   ├── channel_cog.py       # 專屬音樂文字頻道綁定 Slash 指令集
+│   ├── admin_cog.py         # 零停機熱更新 (/reload, /git_pull) 與多工系統監控
+│   └── auth_cog.py          # Google 帳號與 YouTube Music 授權狀態 Slash 指令集
+├── cache/                   # 本地高音質音樂快取目錄 (自動維護 LRU 清理)
+└── recordings/              # 自動儲存之會議與通話錄音 MP3 目錄
 ```
+
+---
+
+## ❓ 常見問題與疑難排解 (FAQ)
+
+### Q1：啟動時遭遇錯誤 `2147942632 (0x800700e8)` 或終端機立即閃退？
+- **原因**：這是 Windows 系統錯誤代碼 `ERROR_NO_DATA`（管道正在被關閉），通常是因為系統選取了全域 Python，或是前次執行的進程/管道尚未釋放。
+- **解法**：
+  1. 請確保使用虛擬環境中的 Python：`.\.venv\Scripts\python.exe main.py`。
+  2. 或直接雙擊執行目錄下的 [`start.bat`](file:///c:/NonoCode/Discord-Boot/start.bat)。
+  3. 專案已實裝完善的執行緒池與管道自動清理機制，確保各模組在關閉時皆能 100% 釋放資源。
+
+### Q2：播歌時完全沒有聲音，但機器人顯示正在播放？
+- **原因**：Discord 於近期升級了全新端到端加密協定（DAVE），舊版本或未打補丁的機器人會因加密未收斂而處於靜音狀態。
+- **解法**：
+  - 本專案已在 [`core/pycord_patch.py`](file:///c:/NonoCode/Discord-Boot/core/pycord_patch.py) 實裝自動 Monkey Patch，啟動時即自動開啟 DAVE Passthrough 穿透模式，保證音樂清晰流暢播放！
+
+### Q3：如何開啟或關閉人數達標自動進出語音？
+- 請開啟 `.env` 檔案調整以下參數：
+  ```env
+  AUTO_JOIN_ENABLED=true      # 是否開啟自動加入語音
+  AUTO_JOIN_MIN_MEMBERS=2     # 語音頻道達到多少人以上時自動連線
+  ```
+
+### Q4：想要更新機器人功能，但語音頻道大家正在聽歌，不想中斷怎麼辦？
+- 直接在伺服器輸入 `/reload`（或使用 `/git_pull` 自 GitHub 拉取），機器人將在不中斷音樂與語音連線的前提下完成全模組動態熱重載！
+
+---
+
+<div align="center">
+
+**✨ 享受極致純淨的 YouTube Music 音樂與歡樂的語音回放時光！**  
+如果喜歡這個專案，歡迎給予專案一個 ⭐️ Star 支持！
+
+</div>

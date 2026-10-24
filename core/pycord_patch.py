@@ -51,10 +51,12 @@ def apply_pycord_patches():
 
         PacketDecoder._get_next_packet = _patched_get_next_packet
 
-        # 1. 補丁 PacketRouter._do_run：防止單一損毀封包中斷錄音線程
+        # 1. 補丁 PacketRouter._do_run：防止單一損毀封包中斷錄音線程，並確保結束標記觸發時立即釋放線程
         def _patched_do_run(self):
             while not self._end_thread.is_set():
                 self.waiter.wait()
+                if self._end_thread.is_set():
+                    break
                 with self._lock:
                     for decoder in list(self.waiter.items):
                         try:
@@ -207,11 +209,16 @@ def apply_pycord_patches():
                 except Exception:
                     pass
 
-        # 7. 補丁 VoiceClient.disconnect：保證 cleanup() 與 _remove_voice_client 必然執行，徹底根除 ClientException: Already connected
+        # 7. 補丁 VoiceClient.disconnect：保證 cleanup() 與 _remove_voice_client 必然執行，並先關閉錄音以釋放 Reader 背景執行緒
         from discord.voice.client import VoiceClient
         _orig_vc_disconnect = VoiceClient.disconnect
 
         async def _patched_vc_disconnect(self, *, force: bool = False) -> None:
+            try:
+                if hasattr(self, "is_recording") and self.is_recording():
+                    self.stop_recording()
+            except Exception:
+                pass
             try:
                 await _orig_vc_disconnect(self, force=force)
             finally:

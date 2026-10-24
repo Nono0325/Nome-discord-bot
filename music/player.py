@@ -245,6 +245,12 @@ class GuildPlayer:
 
             except Exception as e:
                 logger.error(f"建立音訊來源失敗: {e}")
+                if self.current_source:
+                    try:
+                        self.current_source.cleanup()
+                    except Exception:
+                        pass
+                    self.current_source = None
                 ch = self.target_text_channel
                 if ch:
                     await ch.send(f"⚠️ 無法播放 **{song.title}**: {e}")
@@ -252,6 +258,14 @@ class GuildPlayer:
 
             # 等待當前歌曲播放完畢
             await self.next_event.wait()
+
+            # 確保釋放上一首歌曲的音訊執行緒與快取串流資源
+            if self.current_source:
+                try:
+                    self.current_source.cleanup()
+                except Exception:
+                    pass
+                self.current_source = None
 
             # 處理循環模式
             if self.loop_mode == "song" and self.current:
@@ -317,6 +331,12 @@ class GuildPlayer:
         vc = self.voice_client
         if vc and (vc.is_playing() or vc.is_paused()):
             vc.stop()
+        if self.current_source:
+            try:
+                self.current_source.cleanup()
+            except Exception:
+                pass
+            self.current_source = None
 
     def stop(self):
         self.is_stopped = True
@@ -332,6 +352,16 @@ class GuildPlayer:
         vc = self.voice_client
         if vc and (vc.is_playing() or vc.is_paused()):
             vc.stop()
+        if self.current_source:
+            try:
+                self.current_source.cleanup()
+            except Exception:
+                pass
+            self.current_source = None
+        if self.prefetch_task and not self.prefetch_task.done():
+            self.prefetch_task.cancel()
+        if self.player_task and not self.player_task.done():
+            self.player_task.cancel()
 
     def set_volume(self, vol: float):
         self.volume = max(0.0, min(2.0, vol))

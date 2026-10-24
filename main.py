@@ -268,6 +268,18 @@ async def on_application_command_error(ctx: discord.ApplicationContext, error: d
     else:
         await ctx.followup.send(f"❌ 執行指令時發生錯誤: {error}", ephemeral=True)
 
+import atexit
+
+def cleanup_all_resources():
+    """全域同步資源釋放，確保程式結束或被終止時釋放所有背景執行緒與執行行程"""
+    try:
+        from core.audio_mixer import shutdown_audio_executor
+        shutdown_audio_executor(wait=False)
+    except Exception:
+        pass
+
+atexit.register(cleanup_all_resources)
+
 def run():
     if not DISCORD_TOKEN or DISCORD_TOKEN == "YOUR_DISCORD_BOT_TOKEN_HERE":
         print("\n" + "!" * 60)
@@ -280,9 +292,12 @@ def run():
     try:
         bot.run(DISCORD_TOKEN)
     except (KeyboardInterrupt, SystemExit):
-        logger.info("機器人程序已優雅關閉。")
+        logger.info("機器人程序已接收中斷訊號，正在優雅關閉...")
     except Exception as e:
         logger.error(f"機器人執行期間發生未預期錯誤: {e}")
+    finally:
+        cleanup_all_resources()
+        logger.info("機器人背景執行緒與音訊線程池已全數安全釋放完畢。")
 
 if __name__ == "__main__":
     run()

@@ -34,16 +34,24 @@ async def execute_bot_restart(bot: discord.Bot):
     """
     logger.info("⚡ 正在執行機器人完全重新啟動 (Full Reboot)...")
 
-    # 1. 優雅斷開所有伺服器的語音連線並保存錄音
-    for guild in list(bot.guilds):
+    # 1. 優雅釋放所有伺服器的語音連線、錄音器背景執行緒與音樂播放器
+    if hasattr(bot, "voice_manager"):
         try:
-            if hasattr(bot, "voice_manager"):
-                await bot.voice_manager.disconnect_voice(guild.id)
+            await bot.voice_manager.cleanup_all()
         except Exception as ex:
-            logger.debug(f"斷開語音伺服器 {guild.id} 警告: {ex}")
+            logger.debug(f"清理語音連線與執行緒警告: {ex}")
 
-    # 2. 啟動全新 Python 行程
-    python_exe = sys.executable
+    # 釋放音訊轉碼執行緒池
+    try:
+        from core.audio_mixer import shutdown_audio_executor
+        shutdown_audio_executor(wait=False)
+    except Exception:
+        pass
+
+    # 2. 啟動全新 Python 行程 (優先使用專案虛擬環境之 Python 確保環境正確)
+    from config.settings import VENV_SCRIPTS
+    venv_python = VENV_SCRIPTS / "python.exe"
+    python_exe = str(venv_python) if venv_python.exists() else sys.executable
     script_path = str(BASE_DIR / "main.py")
 
     kwargs = {
@@ -131,6 +139,9 @@ class AdminCog(commands.Cog):
             default="全部模組 (all)"
         )
     ):
+        if not self._is_admin(ctx):
+            return await ctx.respond("❌ 只有伺服器管理員或擁有者才能執行熱重載！", ephemeral=True)
+
         await ctx.defer(ephemeral=True)
 
         reloaded = []
@@ -145,6 +156,13 @@ class AdminCog(commands.Cog):
                     modules_to_reload.append(path)
 
         # 優先重載底層核心模組 (若已 import)
+        if "core.audio_mixer" in sys.modules:
+            try:
+                from core.audio_mixer import shutdown_audio_executor
+                shutdown_audio_executor(wait=False)
+            except Exception as ex:
+                logger.debug(f"重載前釋放 AudioMixer 線程池跳過: {ex}")
+
         core_mods = ["core.audio_mixer", "core.recorder", "music.ytdl_source", "music.ytm_client", "music.player"]
         for mod_name in core_mods:
             if mod_name in sys.modules:
@@ -175,6 +193,9 @@ class AdminCog(commands.Cog):
 
     @slash_command(name="git_pull", description="[不斷線更新] 從 GitHub 抓取最新程式碼並自動執行無縫熱重載")
     async def git_pull(self, ctx: discord.ApplicationContext):
+        if not self._is_admin(ctx):
+            return await ctx.respond("❌ 只有伺服器管理員或擁有者才能執行 Git 更新！", ephemeral=True)
+
         await ctx.defer(ephemeral=True)
 
         try:

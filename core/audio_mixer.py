@@ -3,14 +3,37 @@ import time
 import asyncio
 import logging
 import subprocess
+import atexit
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 from config.settings import RECORDINGS_DIR, FFMPEG_EXE
 
 logger = logging.getLogger(__name__)
 
 # 專屬音訊非同步工作線程池（避免阻塞 Discord asyncio 事件循環與播歌流程）
-_AUDIO_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="AudioMixerWorker")
+_AUDIO_EXECUTOR: Optional[ThreadPoolExecutor] = None
+
+def get_audio_executor() -> ThreadPoolExecutor:
+    """獲取全域音訊處理執行緒池，若尚未初始化或已關閉則自動建立"""
+    global _AUDIO_EXECUTOR
+    if _AUDIO_EXECUTOR is None or getattr(_AUDIO_EXECUTOR, "_shutdown", False):
+        _AUDIO_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="AudioMixerWorker")
+    return _AUDIO_EXECUTOR
+
+def shutdown_audio_executor(wait: bool = False):
+    """主動釋放音訊工作執行緒池，徹底杜絕線程洩漏 (Thread Leak)"""
+    global _AUDIO_EXECUTOR
+    if _AUDIO_EXECUTOR is not None:
+        try:
+            _AUDIO_EXECUTOR.shutdown(wait=wait, cancel_futures=True)
+            logger.info("AudioMixerWorker 執行緒池已安全釋放完畢。")
+        except Exception as e:
+            logger.debug(f"關閉 AudioMixer 執行緒池例外: {e}")
+        finally:
+            _AUDIO_EXECUTOR = None
+
+# 註冊處理程序退出時自動釋放執行緒
+atexit.register(shutdown_audio_executor)
 
 class AudioMixer:
     """
@@ -42,6 +65,7 @@ class AudioMixer:
             "-f", "mp3",
             "pipe:1"
         ]
+        proc = None
         try:
             proc = subprocess.Popen(
                 args,
@@ -55,7 +79,25 @@ class AudioMixer:
             return buf
         except Exception as e:
             logger.error(f"FFmpeg PCM 直接轉碼 MP3 失敗: {e}")
+            if proc:
+                try:
+                    proc.kill()
+                    proc.wait()
+                except Exception:
+                    pass
             return io.BytesIO()
+        finally:
+            if proc:
+                if proc.stdin:
+                    try:
+                        proc.stdin.close()
+                    except Exception:
+                        pass
+                if proc.stdout:
+                    try:
+                        proc.stdout.close()
+                    except Exception:
+                        pass
 
     @classmethod
     def mix_replay_buffer(
@@ -118,7 +160,7 @@ class AudioMixer:
         """
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
-            _AUDIO_EXECUTOR,
+            get_audio_executor(),
             cls.mix_replay_buffer,
             user_buffers,
             duration_seconds,
@@ -175,7 +217,7 @@ class AudioMixer:
         """
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
-            _AUDIO_EXECUTOR,
+            get_audio_executor(),
             cls.mix_full_session,
             session_chunks,
             session_start,

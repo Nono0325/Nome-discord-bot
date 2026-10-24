@@ -770,6 +770,14 @@ class PanelCog(commands.Cog):
 
     @slash_command(name="setup_panel", description="📌 在專屬音樂頻道中建立並置頂全功能圖形化控制面板")
     async def setup_panel(self, ctx: discord.ApplicationContext):
+        if not (
+            ctx.author.guild_permissions.manage_channels
+            or ctx.author.guild_permissions.manage_messages
+            or ctx.author.guild_permissions.administrator
+            or (ctx.guild and ctx.author.id == ctx.guild.owner_id)
+        ):
+            return await ctx.respond("❌ 只有具備「管理頻道」或「管理訊息」之管理員才能部署置頂控制面板！", ephemeral=True)
+
         ch = guild_settings.get_music_channel(ctx.guild)
         target_ch = ch or ctx.channel
 

@@ -190,3 +190,42 @@ class VoiceManager:
 
         self.manual_joins.pop(guild_id, None)
 
+    async def cleanup_all(self):
+        """
+        [安全釋放] 徹底釋放所有伺服器的語音連線、錄音器背景執行緒與音樂播放器工作資源
+        """
+        # 1. 停止並釋放所有播放器執行緒與快取串流
+        for guild_id, player in list(self.players.items()):
+            try:
+                player.stop()
+            except Exception as ex:
+                logger.debug(f"停止播放器例外 ({guild_id}): {ex}")
+        self.players.clear()
+
+        # 2. 清理所有錄音 Sink
+        for guild_id, sink in list(self.sinks.items()):
+            try:
+                sink.cleanup()
+            except Exception as ex:
+                logger.debug(f"清理 Sink 例外 ({guild_id}): {ex}")
+        self.sinks.clear()
+
+        # 3. 斷開所有活躍語音客戶端
+        for vc in list(self.bot.voice_clients):
+            try:
+                if vc.is_recording():
+                    vc.stop_recording()
+            except Exception:
+                pass
+            try:
+                await vc.disconnect(force=True)
+            except Exception:
+                pass
+            try:
+                vc.cleanup()
+            except Exception:
+                pass
+
+        self.manual_joins.clear()
+        logger.info("已完全釋放所有語音連線與相關背景執行緒資源。")
+

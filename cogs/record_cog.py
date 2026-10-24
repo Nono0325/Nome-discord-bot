@@ -202,10 +202,20 @@ class RecordCog(commands.Cog):
             return await ctx.respond("機器人目前不在語音頻道中，錄音模組閒置中。", ephemeral=True)
 
         now = time.time()
-        active_in_60s = []
-        for uid, chunks in sink.rolling_buffers.items():
-            if chunks and now - chunks[-1][0] < 60.0:
-                active_in_60s.append(uid)
+        active_in_60s = set()
+        for c_time, uid, _ in list(sink.rolling_stream):
+            if now - c_time < 60.0 and uid:
+                # 解析 SSRC 至真實 Discord ID
+                target_id = uid
+                if uid < 1000000000000 and sink.vc:
+                    resolved_id = None
+                    if hasattr(sink.vc, "_connection") and hasattr(sink.vc._connection, "ssrc_user_map"):
+                        resolved_id = sink.vc._connection.ssrc_user_map.get(uid)
+                    if not resolved_id and hasattr(sink.vc, "_ssrc_to_id"):
+                        resolved_id = sink.vc._ssrc_to_id.get(uid)
+                    if resolved_id:
+                        target_id = resolved_id
+                active_in_60s.add(target_id)
 
         guild = ctx.guild
         speakers = []
@@ -219,8 +229,8 @@ class RecordCog(commands.Cog):
                 else:
                     speakers.append(f"成員({uid})")
             else:
-                speakers.append("語音成員")
-        speakers_str = ", ".join(speakers) if speakers else "最近無人說話"
+                speakers.append(f"語音成員(軌道 {uid})")
+        speakers_str = ", ".join(speakers) if speakers else "最近 60 秒無人發言"
 
         embed = discord.Embed(
             title="📊 語音錄製與緩衝區狀態",

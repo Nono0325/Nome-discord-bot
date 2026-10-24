@@ -214,6 +214,17 @@ class BufferedAudioSource(discord.AudioSource):
                 self._queue.get_nowait()
             except queue.Empty:
                 break
+        if hasattr(self, "_worker") and self._worker and self._worker.is_alive():
+            try:
+                self._worker.join(timeout=0.5)
+            except Exception:
+                pass
+
+    def __del__(self):
+        try:
+            self.cleanup()
+        except Exception:
+            pass
 
 @dataclass
 class Song:
