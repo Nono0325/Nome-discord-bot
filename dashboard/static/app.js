@@ -11,6 +11,11 @@ let logSearchQuery = "";
 let isMusicPlaying = false;
 let logEventSource = null;
 
+let activeTab = "tab-overview";
+let timerStatus = null;
+let timerPlayer = null;
+let timerRecording = null;
+
 // Initialize on DOM Ready
 document.addEventListener("DOMContentLoaded", () => {
     initTabs();
@@ -23,10 +28,28 @@ document.addEventListener("DOMContentLoaded", () => {
     fetchGuilds();
     loadRecordingsList();
 
-    // Regular Polling Intervals
-    setInterval(fetchStatus, 2000);
-    setInterval(pollMusicPlayer, 1000);
-    setInterval(pollRecordingStatus, 3000);
+    // Start Dynamic Smart Polling
+    startSmartPolling();
+});
+
+function startSmartPolling() {
+    if (timerStatus) clearInterval(timerStatus);
+    if (timerPlayer) clearInterval(timerPlayer);
+    if (timerRecording) clearInterval(timerRecording);
+
+    const isHidden = document.hidden;
+    // 背景或切換至非活躍分頁時自動降頻，大幅減少伺服器負載與日誌洗版
+    const statusInterval = isHidden ? 6000 : 2500;
+    const playerInterval = isHidden ? 8000 : (activeTab === "tab-music" ? 1200 : 4000);
+    const recordInterval = isHidden ? 10000 : (activeTab === "tab-recording" ? 2500 : 8000);
+
+    timerStatus = setInterval(fetchStatus, statusInterval);
+    timerPlayer = setInterval(pollMusicPlayer, playerInterval);
+    timerRecording = setInterval(pollRecordingStatus, recordInterval);
+}
+
+document.addEventListener("visibilitychange", () => {
+    startSmartPolling();
 });
 
 /* ==========================================================================
@@ -43,6 +66,7 @@ function initTabs() {
 }
 
 function switchTab(tabId) {
+    activeTab = tabId;
     document.querySelectorAll(".nav-tab").forEach(t => {
         t.classList.toggle("active", t.getAttribute("data-tab") === tabId);
     });
@@ -58,6 +82,8 @@ function switchTab(tabId) {
     } else if (tabId === "tab-logs") {
         scrollLogToBottom();
     }
+
+    startSmartPolling();
 }
 
 /* ==========================================================================

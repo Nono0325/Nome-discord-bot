@@ -8,7 +8,7 @@ import time
 import queue
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import discord
 import yt_dlp
 from config.settings import COOKIES_TXT_PATH, FFMPEG_EXE, BASE_DIR
@@ -366,3 +366,85 @@ class YTDLSource(discord.PCMVolumeTransformer):
             )
 
         return await loop.run_in_executor(None, extract)
+
+    @classmethod
+    async def create_song_list(cls, query: str, requester: str = "未知使用者") -> List[Song]:
+        """
+        全功能通用歌曲與播放清單解析器：
+        1. 支援 YouTube 播放清單網址解析
+        2. 支援單一音訊網址解析
+        3. 支援關鍵字檢索（優先走 YouTube Music 官方引擎）
+        """
+        query = query.strip()
+        if not query:
+            return []
+
+        # 1. 判斷是否為直接網址
+        if query.startswith("http://") or query.startswith("https://"):
+            if "list=" in query and "playlist" in query:
+                loop = asyncio.get_running_loop()
+                def extract_pl():
+                    pl_opts = dict(YTDL_OPTIONS)
+                    pl_opts["noplaylist"] = False
+                    pl_opts["extract_flat"] = True
+                    with yt_dlp.YoutubeDL(pl_opts) as ydl:
+                        return ydl.extract_info(query, download=False)
+
+                try:
+                    info = await loop.run_in_executor(None, extract_pl)
+                    if info and "entries" in info:
+                        songs = []
+                        for entry in info["entries"]:
+                            if not entry:
+                                continue
+                            v_id = entry.get("id") or ""
+                            d_sec = entry.get("duration", 0) or 0
+                            m, s = divmod(int(d_sec), 60)
+                            songs.append(Song(
+                                id=v_id,
+                                title=entry.get("title", "未知曲名"),
+                                artist=entry.get("uploader", "未知藝人"),
+                                duration=f"{m}:{s:02d}",
+                                thumbnail=entry.get("thumbnail", f"https://i.ytimg.com/vi/{v_id}/hqdefault.jpg" if v_id else ""),
+                                webpage_url=entry.get("url") or f"https://www.youtube.com/watch?v={v_id}",
+                                requester=requester,
+                            ))
+                        if songs:
+                            return songs
+                except Exception as e:
+                    logger.warning(f"播放清單解析失敗，轉為單曲模式: {e}")
+
+            # 單曲網址解析
+            try:
+                single = await cls.from_query(query, requester=requester)
+                return [single]
+            except Exception as e:
+                logger.error(f"單曲網址解析失敗 ({query}): {e}")
+                return []
+
+        # 2. 關鍵字搜尋：優先使用 YouTube Music
+        try:
+            from music.ytm_client import ytm_client
+            results = await asyncio.to_thread(ytm_client.search_songs, query, 5)
+            if results:
+                top = results[0]
+                return [Song(
+                    id=top["id"],
+                    title=top["title"],
+                    artist=top["artist"],
+                    duration=top["duration"],
+                    thumbnail=top["thumbnail"],
+                    webpage_url=top["url"],
+                    requester=requester
+                )]
+        except Exception as e:
+            logger.debug(f"YouTube Music 檢索降級: {e}")
+
+        # 備援：yt-dlp 搜尋
+        try:
+            single = await cls.from_query(query, requester=requester)
+            return [single]
+        except Exception as e:
+            logger.error(f"備援關鍵字搜尋失敗 ({query}): {e}")
+            return []
+

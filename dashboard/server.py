@@ -335,34 +335,11 @@ def create_dashboard_app(bot: discord.Bot) -> web.Application:
             query = body.get("query", "").strip()
             if not query:
                 return web.json_response({"error": "請提供歌曲名稱或網址"}, status=400)
-            from music.ytdl_source import YTDLSource, Song
-            from music.ytm_client import ytm_client
+            from music.ytdl_source import YTDLSource
             try:
-                # 判斷是否為直接網址
-                if query.startswith("http://") or query.startswith("https://"):
-                    song_item = await YTDLSource.from_query(query, requester="控制台網頁操作")
-                    songs = [song_item] if song_item else []
-                else:
-                    # 優先使用 YouTube Music 搜尋最佳曲目
-                    results = await asyncio.to_thread(ytm_client.search_songs, query, 5)
-                    if results:
-                        top = results[0]
-                        song_item = Song(
-                            id=top["id"],
-                            title=top["title"],
-                            artist=top["artist"],
-                            duration=top["duration"],
-                            thumbnail=top["thumbnail"],
-                            webpage_url=top["url"],
-                            requester="控制台網頁操作"
-                        )
-                        songs = [song_item]
-                    else:
-                        song_item = await YTDLSource.from_query(query, requester="控制台網頁操作")
-                        songs = [song_item] if song_item else []
-
+                songs = await YTDLSource.create_song_list(query, requester="控制台網頁操作")
                 if not songs:
-                    return web.json_response({"error": "找不到任何符合的歌曲或影片，請更換關鍵字"}, status=404)
+                    return web.json_response({"error": "找不到任何符合的歌曲或影片，請更換關鍵字或網址"}, status=404)
 
                 for s in songs:
                     await player.add_song(s)

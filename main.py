@@ -1,5 +1,6 @@
 import os
 import sys
+import asyncio
 
 # Windows 終端機 UTF-8 編碼支援 (避免 emoji 列印時發生 cp950 編碼錯誤)
 if sys.platform == "win32":
@@ -79,6 +80,8 @@ logging.getLogger("discord.opus").setLevel(logging.WARNING)
 logging.getLogger("discord.voice.receive.reader").setLevel(logging.WARNING)
 logging.getLogger("discord.player").setLevel(logging.WARNING)
 logging.getLogger("discord.voice.state").setLevel(logging.ERROR)
+logging.getLogger("discord.voice.client").setLevel(logging.ERROR)
+logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 
 # 載入 Cogs
 COGS = [
@@ -100,6 +103,19 @@ for cog in COGS:
 
 @bot.event
 async def on_ready():
+    # 設置全域 asyncio 例外處理器，忽略 Windows ProactorEventLoop 瀏覽器關閉/重新整理時的非致命 10054 連線重置
+    loop = asyncio.get_running_loop()
+    def _asyncio_exception_handler(current_loop, context):
+        exc = context.get("exception")
+        if isinstance(exc, ConnectionResetError) or (isinstance(exc, OSError) and getattr(exc, "winerror", None) == 10054):
+            return
+        msg = context.get("message", "")
+        if "_call_connection_lost" in msg:
+            return
+        current_loop.default_exception_handler(context)
+
+    loop.set_exception_handler(_asyncio_exception_handler)
+
     logger.info("=" * 60)
     logger.info(f"🤖 機器人已成功上線！")
     logger.info(f"名稱: {bot.user.name}#{bot.user.discriminator} (ID: {bot.user.id})")
