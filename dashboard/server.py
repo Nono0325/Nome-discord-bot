@@ -5,7 +5,7 @@ import json
 import asyncio
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 
 from aiohttp import web
 import discord
@@ -29,14 +29,47 @@ _RUNNER: Optional[web.AppRunner] = None
 _SITE: Optional[web.TCPSite] = None
 
 
-def format_seconds(seconds: float) -> str:
-    """將秒數格式化為 HH:MM:SS 或 MM:SS"""
-    s = int(seconds)
-    m, s = divmod(s, 60)
-    h, m = divmod(m, 60)
-    if h > 0:
-        return f"{h:02d}:{m:02d}:{s:02d}"
-    return f"{m:02d}:{s:02d}"
+def parse_duration_to_seconds(val: Any) -> float:
+    """將時長 (秒數或 'MM:SS' / 'HH:MM:SS') 轉為浮點數秒數"""
+    if not val:
+        return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
+    if isinstance(val, str):
+        if val == "直播中":
+            return 0.0
+        parts = val.strip().split(":")
+        try:
+            if len(parts) == 3:
+                return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+            elif len(parts) == 2:
+                return int(parts[0]) * 60 + float(parts[1])
+            return float(val)
+        except Exception:
+            return 0.0
+    return 0.0
+
+
+def format_seconds(seconds: Any) -> str:
+    """將秒數或時間字串格式化為 HH:MM:SS 或 MM:SS"""
+    if seconds is None or seconds == "":
+        return "00:00"
+    if isinstance(seconds, str):
+        if ":" in seconds:
+            return seconds
+        try:
+            seconds = float(seconds)
+        except ValueError:
+            return seconds
+    try:
+        s = int(seconds)
+        m, s = divmod(s, 60)
+        h, m = divmod(m, 60)
+        if h > 0:
+            return f"{h:02d}:{m:02d}:{s:02d}"
+        return f"{m:02d}:{s:02d}"
+    except Exception:
+        return str(seconds)
 
 
 def get_system_metrics() -> dict:
@@ -127,7 +160,7 @@ def create_dashboard_app(bot: discord.Bot) -> web.Application:
                         "guild_name": guild.name if guild else str(gid),
                         "title": player.current.title if player.current else "",
                         "is_paused": player.is_paused,
-                        "duration": format_seconds(player.current.duration) if player.current else "00:00"
+                        "duration": str(player.current.duration) if player.current else "00:00"
                     })
 
         data = {
@@ -212,16 +245,18 @@ def create_dashboard_app(bot: discord.Bot) -> web.Application:
 
         current_data = None
         if player.current:
-            duration = player.current.duration or 0
-            position = player.current_position or 0.0
+            raw_duration = player.current.duration or "00:00"
+            duration_sec = parse_duration_to_seconds(raw_duration)
+            position = getattr(player, "elapsed_seconds", getattr(player, "current_position", 0.0)) or 0.0
+            progress = round((position / duration_sec * 100) if duration_sec > 0 else 0, 1)
             current_data = {
                 "title": player.current.title,
                 "artist": player.current.artist,
-                "duration": duration,
-                "duration_str": format_seconds(duration),
+                "duration": duration_sec,
+                "duration_str": str(raw_duration),
                 "position": round(position, 1),
                 "position_str": format_seconds(position),
-                "progress_percent": round((position / duration * 100) if duration > 0 else 0, 1),
+                "progress_percent": min(100.0, max(0.0, progress)),
                 "thumbnail": player.current.thumbnail,
                 "url": player.current.webpage_url,
                 "requester": player.current.requester,
@@ -232,8 +267,8 @@ def create_dashboard_app(bot: discord.Bot) -> web.Application:
                 "index": i + 1,
                 "title": s.title,
                 "artist": s.artist,
-                "duration": s.duration,
-                "duration_str": format_seconds(s.duration or 0),
+                "duration": parse_duration_to_seconds(s.duration),
+                "duration_str": str(s.duration or "00:00"),
                 "thumbnail": s.thumbnail,
                 "url": s.webpage_url,
                 "requester": s.requester,
@@ -284,14 +319,41 @@ def create_dashboard_app(bot: discord.Bot) -> web.Application:
             query = body.get("query", "").strip()
             if not query:
                 return web.json_response({"error": "請提供歌曲名稱或網址"}, status=400)
-            from music.ytdl_source import YTDLSource
+            from music.ytdl_source import YTDLSource, Song
+            from music.ytm_client import ytm_client
             try:
-                songs = await YTDLSource.from_query(query, requester="控制台網頁操作")
+                # 判斷是否為直接網址
+                if query.startswith("http://") or query.startswith("https://"):
+                    song_item = await YTDLSource.from_query(query, requester="控制台網頁操作")
+                    songs = [song_item] if song_item else []
+                else:
+                    # 優先使用 YouTube Music 搜尋最佳曲目
+                    results = await asyncio.to_thread(ytm_client.search_songs, query, 5)
+                    if results:
+                        top = results[0]
+                        song_item = Song(
+                            id=top["id"],
+                            title=top["title"],
+                            artist=top["artist"],
+                            duration=top["duration"],
+                            thumbnail=top["thumbnail"],
+                            webpage_url=top["url"],
+                            requester="控制台網頁操作"
+                        )
+                        songs = [song_item]
+                    else:
+                        song_item = await YTDLSource.from_query(query, requester="控制台網頁操作")
+                        songs = [song_item] if song_item else []
+
+                if not songs:
+                    return web.json_response({"error": "找不到任何符合的歌曲或影片，請更換關鍵字"}, status=404)
+
                 for s in songs:
                     await player.add_song(s)
                 res["added_count"] = len(songs)
                 res["first_song"] = songs[0].title if songs else None
             except Exception as e:
+                logger.exception("Dashboard play error")
                 return web.json_response({"error": f"載入歌曲失敗: {e}"}, status=500)
 
         elif action == "pause":
@@ -307,8 +369,8 @@ def create_dashboard_app(bot: discord.Bot) -> web.Application:
             res["count"] = shuffled_count
         elif action == "volume":
             vol = int(body.get("volume", 100))
-            player.set_volume(max(0, min(100, vol)))
-            res["volume"] = player.volume
+            player.set_volume(max(0, min(100, vol)) / 100.0)
+            res["volume"] = int(player.volume * 100)
         elif action == "loop":
             mode = body.get("mode", "off")
             if mode in ("off", "song", "queue"):

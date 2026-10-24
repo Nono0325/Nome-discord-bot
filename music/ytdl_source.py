@@ -286,9 +286,10 @@ class YTDLSource(discord.PCMVolumeTransformer):
             if not song.stream_url:
                 def extract():
                     info = ytdl.extract_info(song.webpage_url, download=False)
-                    if "entries" in info:
-                        info = info["entries"][0]
-                    return info.get("url")
+                    if info and "entries" in info:
+                        entries = [e for e in info.get("entries") or [] if e is not None]
+                        info = entries[0] if entries else None
+                    return info.get("url") if info else None
 
                 stream_url = await loop.run_in_executor(None, extract)
                 song.stream_url = stream_url
@@ -335,8 +336,17 @@ class YTDLSource(discord.PCMVolumeTransformer):
 
         def extract():
             info = ytdl.extract_info(query, download=False)
+            if not info:
+                raise RuntimeError("無法獲取歌曲資訊，請確認關鍵字或網址是否有效")
+
             if "entries" in info:
-                info = info["entries"][0]
+                entries = [e for e in info.get("entries") or [] if e is not None]
+                if not entries:
+                    raise RuntimeError("找不到任何相關影片或曲目，請嘗試更換關鍵字或確認網址")
+                info = entries[0]
+
+            if not info:
+                raise RuntimeError("曲目解析失敗，找不到有效內容")
 
             duration_sec = info.get("duration", 0)
             is_live = bool(info.get("is_live", False) or (duration_sec == 0 and info.get("is_live") is not False))

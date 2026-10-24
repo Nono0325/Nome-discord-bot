@@ -43,6 +43,23 @@ class GuildPlayer:
         self.is_stopped: bool = False
 
     @property
+    def is_playing(self) -> bool:
+        """是否正在播放音訊"""
+        vc = self.voice_client
+        return bool(vc and vc.is_playing())
+
+    @property
+    def is_paused(self) -> bool:
+        """是否處於暫停狀態"""
+        vc = self.voice_client
+        return bool(vc and vc.is_paused())
+
+    @property
+    def current_position(self) -> float:
+        """取得目前曲目已播放的秒數 (別名)"""
+        return self.elapsed_seconds
+
+    @property
     def elapsed_seconds(self) -> float:
         """取得目前曲目已播放的秒數 (扣除暫停時間)"""
         if not self.play_start_time or not self.current:
