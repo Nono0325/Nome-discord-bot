@@ -3,20 +3,36 @@ chcp 65001 >nul
 title Discord Bot
 cd /d "%~dp0"
 
-echo [1/2] 檢查虛擬環境...
-if exist ".venv\Scripts\python.exe" (
-    set "PYTHON_EXE=.venv\Scripts\python.exe"
-) else (
+echo =======================================================
+echo           Discord Bot - One-Click Launcher
+echo =======================================================
+echo.
+
+set "PYTHON_EXE=.venv\Scripts\python.exe"
+if not exist "%PYTHON_EXE%" (
     set "PYTHON_EXE=python"
 )
 
-echo [2/2] 啟動機器人主程序...
+if not exist ".env" (
+    if exist ".env.example" (
+        copy /y ".env.example" ".env" >nul
+        echo [INFO] Created .env from .env.example
+    )
+)
+
+echo [INFO] Starting Discord Bot using: %PYTHON_EXE%
+echo [INFO] System logs are recorded to: logs\bot.log
+echo [INFO] Press Ctrl+C anytime to safely stop the bot.
+echo =======================================================
+echo.
+
 "%PYTHON_EXE%" main.py
 
 if errorlevel 1 (
     echo.
     echo =======================================================
-    echo [提示] 機器人異常退出，請檢查上述錯誤訊息。
+    echo [ERROR] Bot exited with error code %ERRORLEVEL%.
+    echo Please check the message above or view logs\bot.log.
     echo =======================================================
     pause
 )
