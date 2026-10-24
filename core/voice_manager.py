@@ -20,6 +20,7 @@ class VoiceManager:
         self.sinks: Dict[int, RollingBufferSink] = {}
         self.auto_record: bool = AUTO_RECORD
         self.manual_joins: Dict[int, bool] = {}
+        self._disconnect_locks: Dict[int, asyncio.Lock] = {}
 
     def get_player(self, guild_id: int) -> GuildPlayer:
         if guild_id not in self.players:
@@ -137,58 +138,70 @@ class VoiceManager:
 
     async def disconnect_voice(self, guild_id: int):
         """
-        斷開語音連線，若正在自動錄音則自動匯出並上傳錄音檔，隨後清理資源
+        斷開語音連線，若正在自動錄音則自動匯出並上傳錄音檔，隨後清理資源。
+        具備異步互斥鎖保護機制，徹底防止並行重入觸發重複匯出與空檔問題。
         """
-        guild = self.bot.get_guild(guild_id)
-        player = self.players.get(guild_id)
-        target_ch = player.target_text_channel if player else None
+        if guild_id not in self._disconnect_locks:
+            self._disconnect_locks[guild_id] = asyncio.Lock()
 
-        if guild and guild.voice_client:
-            vc = guild.voice_client
-            if vc.is_recording():
-                try:
-                    vc.stop_recording()
-                except Exception:
-                    pass
-            try:
-                await vc.disconnect(force=True)
-            except Exception as ex:
-                logger.debug(f"斷開語音連線跳過: {ex}")
+        async with self._disconnect_locks[guild_id]:
+            guild = self.bot.get_guild(guild_id)
+            player = self.players.get(guild_id)
+            target_ch = player.target_text_channel if player else None
 
-        # 若有正在錄音的會話，自動混音輸出 MP3 並上傳至文字頻道
-        if guild_id in self.sinks:
-            sink = self.sinks[guild_id]
-            if sink.is_session_recording and sink.session_chunks:
+            # 1. 斷開語音連線
+            if guild and guild.voice_client:
+                vc = guild.voice_client
+                if vc.is_recording():
+                    try:
+                        vc.stop_recording()
+                    except Exception:
+                        pass
                 try:
-                    import os, time
-                    timestr = time.strftime("%Y%m%d_%H%M%S")
-                    filename = f"session_{timestr}.mp3"
-                    out_path = await sink.stop_session_recording_async(filename)
-                    if out_path and os.path.exists(out_path):
-                        file_size = os.path.getsize(out_path)
-                        if target_ch:
-                            embed = discord.Embed(
-                                title="💾 語音頻道自動錄音已存檔！",
-                                description=f"通話已結束，語音頻道所有成員之對話已自動對齊混音！\n📦 **檔案大小:** {file_size / (1024*1024):.2f} MB",
-                                color=0x2ECC71
-                            )
-                            if file_size < 24 * 1024 * 1024:
-                                file = discord.File(out_path, filename=filename)
-                                await target_ch.send(embed=embed, file=file)
-                            else:
-                                embed.set_footer(text=f"檔案已儲存於本機: {out_path}")
-                                await target_ch.send(embed=embed)
+                    await vc.disconnect(force=True)
                 except Exception as ex:
-                    logger.error(f"自動錄音輸出上傳失敗: {ex}")
+                    logger.debug(f"斷開語音連線跳過: {ex}")
 
-            sink.cleanup()
-            del self.sinks[guild_id]
+            # 2. 若有正在錄音的會話，原子性移出 sink 並輸出 MP3
+            sink = self.sinks.pop(guild_id, None)
+            if sink:
+                if sink.is_session_recording and sink.session_chunks:
+                    try:
+                        import os, time
+                        timestr = time.strftime("%Y%m%d_%H%M%S")
+                        filename = f"session_{timestr}.mp3"
+                        out_path = await sink.stop_session_recording_async(filename)
+                        if out_path and os.path.exists(out_path):
+                            file_size = os.path.getsize(out_path)
+                            # 只有檔案大小大於 50KB (有效錄音，過濾極短雜訊碎片) 時才發送通知
+                            if file_size > 50000 and target_ch:
+                                embed = discord.Embed(
+                                    title="💾 語音頻道自動錄音已存檔！",
+                                    description=f"通話已結束，語音頻道所有成員之對話已自動對齊混音！\n📦 **檔案大小:** {file_size / (1024*1024):.2f} MB",
+                                    color=0x2ECC71
+                                )
+                                if file_size < 24 * 1024 * 1024:
+                                    file = discord.File(out_path, filename=filename)
+                                    await target_ch.send(embed=embed, file=file)
+                                else:
+                                    embed.set_footer(text=f"檔案已儲存於本機: {out_path}")
+                                    await target_ch.send(embed=embed)
+                            elif file_size <= 50000:
+                                try:
+                                    os.remove(out_path)
+                                except Exception:
+                                    pass
+                    except Exception as ex:
+                        logger.error(f"自動錄音輸出上傳失敗: {ex}")
 
-        if guild_id in self.players:
-            self.players[guild_id].stop()
-            del self.players[guild_id]
+                sink.cleanup()
 
-        self.manual_joins.pop(guild_id, None)
+            # 3. 清理音樂播放器
+            if guild_id in self.players:
+                self.players[guild_id].stop()
+                del self.players[guild_id]
+
+            self.manual_joins.pop(guild_id, None)
 
     async def cleanup_all(self):
         """

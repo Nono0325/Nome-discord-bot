@@ -187,6 +187,7 @@ start.bat
 | `/reload` | `[指定模組]` | **零停機熱重載！** 不中斷語音與播歌流程，動態熱更新 Python 邏輯並自動釋放舊線程池（管理員限定） |
 | `/git_pull` | 無 | **雲端熱更新！** 從 GitHub 遠端同步最新代碼並自動完成所有模組動態重載（管理員限定） |
 | `/restart` | `[force: 是/否]` | 安全重新啟動機器人主進程（具備防誤觸二次確認對話框與重啟就緒自動通知，管理員限定） |
+| `/logs` | `[lines] [as_file]` | **即時日誌檢視！** 在 Discord 內直接查看最新日誌紀錄或下載完整 `bot.log`（管理員限定） |
 | `/sysinfo` | 無 | 查看系統多工健康儀表板（活動背景執行緒數、Gateway Ping 延遲、連線數與連續運行時間） |
 
 ---
@@ -210,9 +211,10 @@ Discord-Boot/
 ├── .env.example             # 環境變數範例檔
 ├── .gitignore               # Git 忽略配置清單
 ├── requirements.txt         # Python 依賴套件清單
-├── main.py                  # 機器人主入口程式 (含 atexit 全域安全釋放保險絲)
+├── main.py                  # 機器人主入口程式 (含 atexit 全域安全釋放保險絲與雙通道日誌)
 ├── setup_google.py          # Google 帳號互動式授權精靈 (支援設備碼/標頭/Cookie)
 ├── start.bat                # Windows 一鍵啟動腳本
+├── logs/                    # 系統輪轉日誌目錄 (自動生成 bot.log，最高 10MB 輪轉備份)
 ├── .vscode/
 │   └── settings.json        # VS Code 預設虛擬環境與終端機配置
 ├── config/

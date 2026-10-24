@@ -29,8 +29,11 @@ cache/
 *.webm
 *.opus
 
+# Logs
+logs/
+*.log
+
 # IDE / Editor
 .vscode/
 .idea/
 *.swp
-*.log

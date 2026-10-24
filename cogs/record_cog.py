@@ -101,7 +101,7 @@ class RecordCog(commands.Cog):
                 description=f"⏱️ **剪輯長度:** {seconds} 秒\n🗣️ **參與對話成員:** {speakers_str}\n📦 **檔案大小:** {mp3_size / (1024*1024):.2f} MB",
                 color=0x2ECC71
             )
-            embed.set_footer(text="音訊已採用直通無損串流輸出，完整保留對話內容 (320 kbps MP3)")
+            embed.set_footer(text="音訊已採用直通串流輸出，完整保留對話內容 (192 kbps 高音質 MP3)")
 
             allowed_mentions = discord.AllowedMentions.none()
             if is_interaction:
@@ -178,7 +178,7 @@ class RecordCog(commands.Cog):
         out_path = await sink.stop_session_recording_async(filename)
 
         if not out_path or not os.path.exists(out_path):
-            return await ctx.respond("⚠️ 錄音會話中沒有錄到任何成員語音數據。", ephemeral=True)
+            return await ctx.respond("⚠️ 錄音會話中沒有錄到任何成員語音數據或長度過短 (< 3 秒)。", ephemeral=True)
 
         file_size = os.path.getsize(out_path)
         embed = discord.Embed(

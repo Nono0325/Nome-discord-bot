@@ -48,9 +48,9 @@ class AudioMixer:
     BYTES_PER_SAMPLE = 4  # 16-bit * 2 channels = 4 bytes
 
     @classmethod
-    def direct_pcm_to_mp3(cls, pcm_bytes: bytes, bitrate: str = "320k") -> io.BytesIO:
+    def direct_pcm_to_mp3(cls, pcm_bytes: bytes, bitrate: str = "192k") -> io.BytesIO:
         """
-        將原始 PCM 語音資料直接快速無損編碼為最高品質 MP3，完全不經過時間軸混音或門檻過濾
+        將原始 PCM 語音資料直接快速編碼為高品質 MP3 (預設 192k，兼顧速度與音質)
         """
         if not pcm_bytes:
             return io.BytesIO()
@@ -145,7 +145,7 @@ class AudioMixer:
         raw_pcm = b"".join(c[2] for c in all_chunks)
         active_users = list({c[1] for c in all_chunks if c[1] != 0})
 
-        mp3_buf = cls.direct_pcm_to_mp3(raw_pcm, bitrate="320k")
+        mp3_buf = cls.direct_pcm_to_mp3(raw_pcm, bitrate="192k")
         return mp3_buf, active_users
 
     @classmethod
@@ -173,11 +173,13 @@ class AudioMixer:
         session_chunks: List[Tuple],
         session_start: float,
         session_end: float,
-        output_filename: str
+        output_filename: str,
+        bitrate: str = "128k"
     ) -> str:
         """
-        直通完整會話錄音（不混音）：
-        將會議中所有收到的語音片段依到達順序串接，直接輸出至 MP3 檔案。
+        直通完整會話錄音（高效能串流寫入）：
+        將會議中所有收到的語音片段依到達順序串接，以分段串流方式直接寫入 FFmpeg 輸出至磁碟。
+        免除記憶體巨大暴增 (RAM Explosion)，並過濾過短雜訊 (< 3 秒)。
         """
         if not session_chunks:
             return ""
@@ -185,24 +187,67 @@ class AudioMixer:
         # 按照時間戳順序排序
         sorted_chunks = sorted(session_chunks, key=lambda x: x[1] if len(x) > 1 else 0)
         pcm_parts = []
+        total_pcm_len = 0
         for item in sorted_chunks:
+            pcm = None
             if len(item) >= 3 and isinstance(item[2], (bytes, bytearray)):
-                pcm_parts.append(item[2])
+                pcm = item[2]
             elif len(item) >= 2 and isinstance(item[1], (bytes, bytearray)):
-                pcm_parts.append(item[1])
+                pcm = item[1]
+            if pcm:
+                pcm_parts.append(pcm)
+                total_pcm_len += len(pcm)
 
         if not pcm_parts:
             return ""
 
-        raw_pcm = b"".join(pcm_parts)
+        # 門檻過濾：少於 3 秒 (3 * 48000 * 4 = 576,000 bytes) 之零碎雜訊檔不予存檔
+        if total_pcm_len < 576000:
+            logger.info(f"錄音時間過短 ({total_pcm_len} bytes < 3 秒)，自動略過存檔，避免產生垃圾碎片檔案。")
+            return ""
+
         output_path = RECORDINGS_DIR / output_filename
-        mp3_buf = cls.direct_pcm_to_mp3(raw_pcm, bitrate="320k")
-
-        with open(output_path, "wb") as f:
-            f.write(mp3_buf.getbuffer())
-
-        logger.info(f"直通完整錄音檔案已成功儲存至: {output_path} (大小: {len(raw_pcm)} bytes)")
-        return str(output_path)
+        args = [
+            str(FFMPEG_EXE),
+            "-y",
+            "-f", "s16le",
+            "-ar", "48000",
+            "-ac", "2",
+            "-i", "pipe:0",
+            "-b:a", bitrate,
+            "-f", "mp3",
+            str(output_path)
+        ]
+        proc = None
+        try:
+            proc = subprocess.Popen(
+                args,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            # 串流直接分段寫入 FFmpeg stdin，徹底免除巨大記憶體緩衝
+            for part in pcm_parts:
+                proc.stdin.write(part)
+            proc.stdin.close()
+            proc.wait()
+            logger.info(f"直通完整錄音檔案已成功儲存至: {output_path} (PCM 總量: {total_pcm_len} bytes, 位元率: {bitrate})")
+            return str(output_path)
+        except Exception as e:
+            logger.error(f"FFmpeg 串流直接轉碼 MP3 失敗: {e}")
+            if proc:
+                try:
+                    proc.kill()
+                    proc.wait()
+                except Exception:
+                    pass
+            return ""
+        finally:
+            if proc and proc.stdin and not proc.stdin.closed:
+                try:
+                    proc.stdin.close()
+                except Exception:
+                    pass
 
     @classmethod
     async def mix_full_session_async(
@@ -210,7 +255,8 @@ class AudioMixer:
         session_chunks: List[Tuple],
         session_start: float,
         session_end: float,
-        output_filename: str
+        output_filename: str,
+        bitrate: str = "128k"
     ) -> str:
         """
         [多工處理] 在背景線程池中非同步輸出完整錄音檔案。
@@ -222,5 +268,6 @@ class AudioMixer:
             session_chunks,
             session_start,
             session_end,
-            output_filename
+            output_filename,
+            bitrate
         )

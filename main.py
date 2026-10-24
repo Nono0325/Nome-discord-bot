@@ -10,17 +10,10 @@ if sys.platform == "win32":
         pass
 
 import logging
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-# 設定基本記錄
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(asctime)s] [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
-)
-logger = logging.getLogger("DiscordBot")
-
-# 匯入環境設定
+# 匯入環境設定與路徑
 from config.settings import (
     DISCORD_TOKEN,
     COMMAND_PREFIX,
@@ -28,8 +21,35 @@ from config.settings import (
     REPLAY_BUFFER_SECONDS,
     AUTO_JOIN_ENABLED,
     AUTO_JOIN_MIN_MEMBERS,
-    RESTART_INFO_PATH
+    RESTART_INFO_PATH,
+    LOG_FILE_PATH
 )
+
+# 設定全域日誌記錄器 (同時輸出至標準輸出與輪轉紀錄檔 logs/bot.log)
+log_formatter = logging.Formatter(
+    "[%(asctime)s] [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setFormatter(log_formatter)
+
+file_handler = RotatingFileHandler(
+    LOG_FILE_PATH,
+    maxBytes=10 * 1024 * 1024,  # 10MB
+    backupCount=5,
+    encoding="utf-8"
+)
+file_handler.setFormatter(log_formatter)
+
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+# 清理舊 handler 避免重複
+root_logger.handlers.clear()
+root_logger.addHandler(console_handler)
+root_logger.addHandler(file_handler)
+
+logger = logging.getLogger("DiscordBot")
 import discord
 from core.pycord_patch import apply_pycord_patches
 from core.voice_manager import VoiceManager
@@ -130,6 +150,12 @@ async def on_ready():
             elapsed_sec = round(time.time() - start_ts, 2) if start_ts else 0
 
             channel = bot.get_channel(ch_id)
+            if not channel:
+                try:
+                    channel = await bot.fetch_channel(ch_id)
+                except Exception:
+                    channel = None
+
             if channel:
                 msg = await channel.fetch_message(msg_id)
                 if msg:

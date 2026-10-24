@@ -45,8 +45,11 @@ CONFIG_DIR = BASE_DIR / "config"
 CONFIG_DIR.mkdir(exist_ok=True)
 RECORDINGS_DIR = BASE_DIR / "recordings"
 RECORDINGS_DIR.mkdir(exist_ok=True)
+LOGS_DIR = BASE_DIR / "logs"
+LOGS_DIR.mkdir(exist_ok=True)
 
 OAUTH_JSON_PATH = CONFIG_DIR / "oauth.json"
 BROWSER_JSON_PATH = CONFIG_DIR / "browser.json"
 COOKIES_TXT_PATH = CONFIG_DIR / "cookies.txt"
 RESTART_INFO_PATH = CONFIG_DIR / "restart_info.json"
+LOG_FILE_PATH = LOGS_DIR / "bot.log"

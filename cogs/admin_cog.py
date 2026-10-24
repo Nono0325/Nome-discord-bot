@@ -11,7 +11,7 @@ import discord
 from discord.ext import commands
 from discord.commands import slash_command, Option
 
-from config.settings import RESTART_INFO_PATH, BASE_DIR
+from config.settings import RESTART_INFO_PATH, BASE_DIR, LOG_FILE_PATH, VENV_SCRIPTS
 
 logger = logging.getLogger(__name__)
 
@@ -49,15 +49,21 @@ async def execute_bot_restart(bot: discord.Bot):
         pass
 
     # 2. 啟動全新 Python 行程 (優先使用專案虛擬環境之 Python 確保環境正確)
-    from config.settings import VENV_SCRIPTS
     venv_python = VENV_SCRIPTS / "python.exe"
     python_exe = str(venv_python) if venv_python.exists() else sys.executable
     script_path = str(BASE_DIR / "main.py")
 
+    log_handle = None
+    try:
+        log_handle = open(LOG_FILE_PATH, "a", encoding="utf-8")
+        out_target = log_handle
+    except Exception:
+        out_target = subprocess.DEVNULL
+
     kwargs = {
         "stdin": subprocess.DEVNULL,
-        "stdout": subprocess.DEVNULL,
-        "stderr": subprocess.DEVNULL,
+        "stdout": out_target,
+        "stderr": out_target,
     }
     if sys.platform == "win32":
         # 加上 CREATE_BREAKAWAY_FROM_JOB (0x01000000)，確保脫離父進程 Job Object 限制
@@ -313,6 +319,49 @@ class AdminCog(commands.Cog):
             )
             view = RestartConfirmView(self.bot, ctx.author.id)
             await ctx.respond(embed=embed, view=view, ephemeral=True)
+
+    @slash_command(name="logs", description="[管理員限定] 查看機器人最新日誌紀錄 (bot.log)")
+    async def view_logs(
+        self,
+        ctx: discord.ApplicationContext,
+        lines: Option(int, "顯示最新日誌行數 (預設 30 行，最大 100 行)", required=False, default=30, min_value=5, max_value=100),
+        as_file: Option(bool, "是否直接以檔案附件發送完整日誌檔", required=False, default=False)
+    ):
+        if not self._is_admin(ctx):
+            return await ctx.respond("❌ 只有伺服器管理員或擁有者才能查看日誌！", ephemeral=True)
+
+        if not LOG_FILE_PATH.exists():
+            return await ctx.respond("ℹ️ 目前尚未產生任何日誌記錄檔。", ephemeral=True)
+
+        if as_file:
+            await ctx.defer(ephemeral=True)
+            try:
+                file = discord.File(str(LOG_FILE_PATH), filename="bot.log")
+                await ctx.respond("📄 機器人完整日誌檔案如下：", file=file, ephemeral=True)
+            except Exception as e:
+                await ctx.respond(f"❌ 傳送日誌檔案失敗: {e}", ephemeral=True)
+            return
+
+        try:
+            with open(LOG_FILE_PATH, "r", encoding="utf-8", errors="replace") as f:
+                all_lines = f.readlines()
+            tail_lines = all_lines[-lines:] if len(all_lines) > lines else all_lines
+            content = "".join(tail_lines)
+            if not content.strip():
+                content = "(日誌檔案目前為空)"
+
+            if len(content) > 1900:
+                content = content[-1900:]
+
+            embed = discord.Embed(
+                title=f"📋 機器人最新日誌 (最後 {len(tail_lines)} 行)",
+                description=f"```log\n{content}\n```",
+                color=0x34495E
+            )
+            embed.set_footer(text=f"完整檔案路徑: {LOG_FILE_PATH}")
+            await ctx.respond(embed=embed, ephemeral=True)
+        except Exception as e:
+            await ctx.respond(f"❌ 讀取日誌失敗: {e}", ephemeral=True)
 
 def setup(bot: discord.Bot):
     bot.add_cog(AdminCog(bot))
