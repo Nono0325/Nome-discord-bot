@@ -192,6 +192,61 @@ def apply_pycord_patches():
 
         PacketRouter.destroy_all_decoders = _patched_destroy_all_decoders
 
+        # 5.2 補丁 AudioReader.callback：修復官方當收到 RTCP 202-204 等非 RR 封包時 decode 產生 RTPPacket 導致 AttributeError 拋出異常終止錄音線程的重大問題
+        from discord.voice.receive.reader import AudioReader, decode, ReceiverReportPacket, CryptoError
+        from discord.voice.packets.rtp import RTPPacket
+
+        def _patched_audio_reader_callback(self, packet_data: bytes) -> None:
+            packet = rtp_packet = rtcp_packet = None
+
+            try:
+                decoded = decode(packet_data)
+                if isinstance(decoded, RTPPacket):
+                    packet = rtp_packet = decoded
+                    packet.decrypted_data = self.decryptor.decrypt_rtp(packet)
+                else:
+                    packet = rtcp_packet = decoded
+                    if not isinstance(packet, ReceiverReportPacket):
+                        ptype = getattr(packet, "type", getattr(packet, "payload_type", "unknown"))
+                        logger.debug("收到非 ReceiverReport RTCP 封包: type=%s, %s", ptype, type(packet))
+            except CryptoError as exc:
+                logger.debug("解密語音封包時發生 CryptoError: %s", exc)
+                return
+            except Exception as exc:
+                if hasattr(self, "_is_ip_discovery_packet") and self._is_ip_discovery_packet(packet_data):
+                    return
+                logger.debug("解碼語音封包例外 (已安全捕獲，保持錄音持續): %s", exc)
+                return
+            finally:
+                if self.error:
+                    logger.debug("Callback 發生錯誤，停止讀取: %s", self.error)
+                    self.stop()
+                    return
+                if not packet:
+                    return
+
+            if rtcp_packet:
+                try:
+                    self.packet_router.feed_rtcp(rtcp_packet)
+                except Exception:
+                    pass
+            elif rtp_packet:
+                if not rtp_packet.decrypted_data:
+                    return
+
+                ssrc = rtp_packet.ssrc
+                if ssrc not in self.client._connection.ssrc_user_map:
+                    if rtp_packet.is_silence():
+                        return
+
+                self.speaking_timer.notify(ssrc)
+                try:
+                    self.packet_router.feed_rtp(rtp_packet)
+                except Exception as exc:
+                    logger.debug("處理 RTP 封包異常: %s", exc)
+
+        AudioReader.callback = _patched_audio_reader_callback
+
         # 6. 補丁 VoiceConnectionState：強制開啟 DAVE Passthrough 穿透模式，防止 Discord 因端到端加密尚未收斂而全頻道靜音
         from discord.voice.state import VoiceConnectionState
         _orig_reinit_dave = VoiceConnectionState.reinit_dave_session

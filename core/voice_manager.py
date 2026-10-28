@@ -21,6 +21,7 @@ class VoiceManager:
         self.auto_record: bool = AUTO_RECORD
         self.manual_joins: Dict[int, bool] = {}
         self._disconnect_locks: Dict[int, asyncio.Lock] = {}
+        self._connect_locks: Dict[int, asyncio.Lock] = {}
 
     def get_player(self, guild_id: int) -> GuildPlayer:
         if guild_id not in self.players:
@@ -41,82 +42,92 @@ class VoiceManager:
         """
         guild = voice_channel.guild
         self.manual_joins[guild.id] = manual
-        vc = guild.voice_client
 
-        if vc and vc.is_connected():
-            if vc.channel and vc.channel.id != voice_channel.id:
-                if vc.is_recording():
-                    try:
-                        vc.stop_recording()
-                    except Exception:
-                        pass
-                await vc.move_to(voice_channel)
-                await asyncio.sleep(0.5)
-        else:
-            # 處理斷線中、半中斷或殘留之殭屍連線，先進行強制清理
-            if vc is not None:
-                try:
+        if guild.id not in self._connect_locks:
+            self._connect_locks[guild.id] = asyncio.Lock()
+
+        async with self._connect_locks[guild.id]:
+            vc = guild.voice_client
+
+            if vc and vc.is_connected():
+                if vc.channel and vc.channel.id != voice_channel.id:
                     if vc.is_recording():
-                        vc.stop_recording()
-                except Exception:
-                    pass
-                try:
-                    await vc.disconnect(force=True)
-                except Exception:
-                    pass
-                try:
-                    vc.cleanup()
-                except Exception:
-                    pass
+                        try:
+                            vc.stop_recording()
+                        except Exception:
+                            pass
+                    await vc.move_to(voice_channel)
+                    await asyncio.sleep(0.5)
+                elif vc.channel and vc.channel.id == voice_channel.id:
+                    self.ensure_recording(guild.id)
+                    if text_channel:
+                        self.get_player(guild.id).text_channel = text_channel
+                    return vc
+            else:
+                # 處理斷線中、半中斷或殘留之殭屍連線，先進行強制清理
+                if vc is not None:
+                    try:
+                        if vc.is_recording():
+                            vc.stop_recording()
+                    except Exception:
+                        pass
+                    try:
+                        await vc.disconnect(force=True)
+                    except Exception:
+                        pass
+                    try:
+                        vc.cleanup()
+                    except Exception:
+                        pass
+                    if hasattr(voice_channel, "_state"):
+                        voice_channel._state._remove_voice_client(guild.id)
+                    await asyncio.sleep(0.5)
+
                 if hasattr(voice_channel, "_state"):
                     voice_channel._state._remove_voice_client(guild.id)
-                await asyncio.sleep(0.5)
 
-            if hasattr(voice_channel, "_state"):
-                voice_channel._state._remove_voice_client(guild.id)
+                try:
+                    vc = await voice_channel.connect(timeout=45.0, reconnect=True)
+                except (discord.ClientException, discord.errors.ConnectionClosed, asyncio.TimeoutError) as e:
+                    # 若 Pycord 內部殘留已連線標記或連線重置 (如 4006)，強制清理並重試
+                    logger.warning(f"語音初次連線遭遇標記或連線衝突 ({e})，正在執行深度重置並重試...")
+                    if hasattr(voice_channel, "_state"):
+                        voice_channel._state._remove_voice_client(guild.id)
+                    if guild.voice_client:
+                        try:
+                            await guild.voice_client.disconnect(force=True)
+                        except Exception:
+                            pass
+                        try:
+                            guild.voice_client.cleanup()
+                        except Exception:
+                            pass
+                    if hasattr(voice_channel, "_state"):
+                        voice_channel._state._remove_voice_client(guild.id)
+                    await asyncio.sleep(1.0)
+                    vc = await voice_channel.connect(timeout=45.0, reconnect=True)
 
+            # 自動檢查並將語音頻道音質升級為該伺服器所支援之最高位元率 (若具備管理頻道權限)
             try:
-                vc = await voice_channel.connect(timeout=45.0, reconnect=True)
-            except discord.ClientException as e:
-                # 若 Pycord 內部殘留已連線標記，強制清理並重試
-                logger.warning(f"語音初次連線遭遇標記衝突 ({e})，正在執行深度重置並重試...")
-                if hasattr(voice_channel, "_state"):
-                    voice_channel._state._remove_voice_client(guild.id)
-                if guild.voice_client:
-                    try:
-                        await guild.voice_client.disconnect(force=True)
-                    except Exception:
-                        pass
-                    try:
-                        guild.voice_client.cleanup()
-                    except Exception:
-                        pass
-                if hasattr(voice_channel, "_state"):
-                    voice_channel._state._remove_voice_client(guild.id)
-                await asyncio.sleep(1.0)
-                vc = await voice_channel.connect(timeout=45.0, reconnect=True)
+                if guild.me and voice_channel.permissions_for(guild.me).manage_channels:
+                    max_limit = int(guild.bitrate_limit)
+                    if voice_channel.bitrate < max_limit:
+                        await voice_channel.edit(bitrate=max_limit, reason="自動升級語音頻道音質至伺服器最高上限")
+                        logger.info(f"已自動將語音頻道 {voice_channel.name} 音質升級至 {max_limit // 1000} kbps")
+            except Exception as ex:
+                logger.debug(f"升級語音頻道音質跳過: {ex}")
 
-        # 自動檢查並將語音頻道音質升級為該伺服器所支援之最高位元率 (若具備管理頻道權限)
-        try:
-            if guild.me and voice_channel.permissions_for(guild.me).manage_channels:
-                max_limit = int(guild.bitrate_limit)
-                if voice_channel.bitrate < max_limit:
-                    await voice_channel.edit(bitrate=max_limit, reason="自動升級語音頻道音質至伺服器最高上限")
-                    logger.info(f"已自動將語音頻道 {voice_channel.name} 音質升級至 {max_limit // 1000} kbps")
-        except Exception as ex:
-            logger.debug(f"升級語音頻道音質跳過: {ex}")
+            # 設定音樂播放器的預設文字頻道
+            player = self.get_player(guild.id)
+            if text_channel:
+                player.text_channel = text_channel
 
-        # 設定音樂播放器的預設文字頻道
-        player = self.get_player(guild.id)
-        if text_channel:
-            player.text_channel = text_channel
+            # 啟動語音接收器（維護前一分鐘緩衝區與自動錄音）
+            # 關鍵保護：必須確認 vc 已成功建立連線且非錄音中，杜絕 RecordingException: not connected to a voice channel
+            if vc and vc.is_connected():
+                self.ensure_recording(guild.id)
 
-        # 啟動語音接收器（維護前一分鐘緩衝區與自動錄音）
-        # 關鍵保護：必須確認 vc 已成功建立連線且非錄音中，杜絕 RecordingException: not connected to a voice channel
-        if vc and vc.is_connected():
-            self.ensure_recording(guild.id)
-
-        return vc
+            return vc
 
     def _create_record_callback(self, guild_id: int, vc: discord.VoiceClient, sink: RollingBufferSink):
         def record_finished_callback(error=None, *args, **kwargs):

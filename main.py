@@ -318,11 +318,19 @@ async def on_voice_state_update(member, before, after):
 
 @bot.event
 async def on_application_command_error(ctx: discord.ApplicationContext, error: discord.DiscordException):
+    # 若為 Discord 互動超時或無效互動 (10062 Unknown Interaction / NotFound)，僅做簡短警告記錄避免刷屏
+    if isinstance(error, discord.NotFound) or getattr(error, "code", None) == 10062:
+        logger.warning(f"指令互動已失效或逾時 (Discord 10062 Unknown Interaction): {getattr(ctx, 'command', '未知指令')}")
+        return
+
     logger.error(f"指令執行錯誤: {error}", exc_info=True)
-    if not ctx.response.is_done():
-        await ctx.respond(f"❌ 執行指令時發生錯誤: {error}", ephemeral=True)
-    else:
-        await ctx.followup.send(f"❌ 執行指令時發生錯誤: {error}", ephemeral=True)
+    try:
+        if not ctx.response.is_done():
+            await ctx.respond(f"❌ 執行指令時發生錯誤: {error}", ephemeral=True)
+        else:
+            await ctx.followup.send(f"❌ 執行指令時發生錯誤: {error}", ephemeral=True)
+    except Exception:
+        pass
 
 import atexit
 
